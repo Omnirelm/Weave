@@ -10,8 +10,7 @@ It can investigate incidents by analyzing logs and metrics, execute runbooks, an
 - [Why Weave](#why-weave)
 - [What Weave Can Do](#what-weave-can-do)
 - [Core Concepts](#core-concepts)
-- [Quick Start](#quick-start)
-- [Example Requests](#example-requests)
+- [Run Weave](#run-weave)
 - [Configuration](#configuration)
 - [Project Layout](#project-layout)
 - [Developing Locally](#developing-locally)
@@ -34,162 +33,117 @@ Weave turns these tasks into agent workflows with reusable skills and tools, so 
 - Automated runbook execution for repeatable ops workflows
 - Ad-hoc engineering requests across integrated systems
 - Multi-step orchestration with planning, execution, and synthesis
-- Local tool + MCP server composition in one skill run
+- Local tools plus per-tenant MCP and log integrations in one skill run
 
 ## Core Concepts
 
-- `skills`: reusable YAML-defined workflows (instructions/schemas/model, and optional steps)
-- `tools` (`capabilities`): local callable functions used by skills
-- `mcp_servers`: remote capability providers attached to skills via MCP
+- **Orchestrator** — HTTP API (`orchestrator/`) backed by PostgreSQL: tenants, skills, integrations, and `POST /tasks/run`.
+- **Skills** — Instructions + model + optional JSON schemas; may declare **`capabilities`** (tool names) and **`mcp_servers`** (MCP integration flavours). Stored per tenant in the DB; JSON files under `orchestrator/skills/` are templates you register via the API.
+- **Tools** — Resolved at runtime (e.g. static HTTP tool, or Loki/OpenSearch/ClickHouse tools when a matching **integration** exists).
+- **Integrations** — Per-tenant configuration (Loki, OpenSearch, ClickHouse, Git, traces, MCP servers). MCP **`flavour`** must match what skills list under **`mcp_servers`**.
 
-A skill can call both local `capabilities` and remote `mcp_servers` in the same execution.
+---
 
-## Quick Start
+## Run Weave
 
-### Prerequisites
-- Python `3.11+`
-- [`uv`](https://docs.astral.sh/uv/)
+### 1. Minimal environment
 
-### 1) Install dependencies
-From `orchestrator/`:
+| Variable | When |
+|----------|------|
+| **`OPENAI_API_KEY`** | Required for model calls. Set in **`orchestrator/.env`** (used by Docker Compose and local **uv**). |
+| **`ORCHESTRATOR_DATABASE__URL`** | Only if you run **uv** against a database other than the default in `orchestrator/config.yaml`. Compose injects the correct URL for the orchestrator container. |
+
+Optional variables (Redis, OTel, auth, …): **`orchestrator/.env.example`**.
+
+Default **`orchestrator/config.yaml`** keeps **`auth.disabled`** and **`auth.quota_disabled`** as **`true`** so you can use the API locally without API keys or plan quotas.
+
+**Postgres URLs:** `psql` uses `postgresql://…`; the app uses `postgresql+asyncpg://…` (same host, user, database; different driver prefix).
+
+### 2. Option A — Docker Compose (Postgres + API)
+
+From the **repository root** (where `docker-compose.yml` lives):
 
 ```bash
+cp orchestrator/.env.example orchestrator/.env
+# set OPENAI_API_KEY in orchestrator/.env
+
+docker compose up --build
+```
+
+- **API:** `http://localhost:9999` — OpenAPI UI at `/docs`, health at `GET /health`.
+- **Postgres:** `localhost:5432` — on **first** creation of the compose volume, `orchestrator/schema/init.sql` runs automatically. If you keep an old volume after schema changes, re-apply SQL or remove the volume.
+- **Observability (optional):** `docker compose --profile observability up --build` — see comments in [`docker-compose.yml`](docker-compose.yml).
+
+### 3. Option B — Local **uv** + your Postgres
+
+```bash
+cd orchestrator
+cp .env.example .env
+# OPENAI_API_KEY=...
+# ORCHESTRATOR_DATABASE__URL=postgresql+asyncpg://...   # if not using config default
+
+psql "postgresql://USER:PASS@HOST:5432/DB" -v ON_ERROR_STOP=1 -f schema/init.sql
+
 uv sync
+uv run uvicorn src.main:app --reload --host 0.0.0.0 --port 9999
+# or: uv run orchestrator   (port from REST_PORT, default 9999)
 ```
 
-### 2) Configure environment
-Create `orchestrator/.env`:
+### 4. First flow: tenant → skill → integration → task
+
+Skills the runner uses are stored in **`tenant_skills`**. Copy definitions from **`orchestrator/skills/*.json`** into the API with **`POST /tenants/{slug}/skills`**.
+
+From the **repository root**, paths below use **`orchestrator/skills/`**. If you already **`cd orchestrator`**, use **`skills/`** instead.
 
 ```bash
-ORCHESTRATOR_DEBUG=true
-OPENAI_API_KEY=<your_openai_api_key>
+export BASE=http://localhost:9999
 ```
 
-### 3) Configure integrations
-Update `orchestrator/config.yaml` for your environment (MCP servers, log sources, auth headers, etc.).
-
-### 4) Start the API
+**1 — Create a tenant** (`plan_slug`: `starter` | `essential` | `pro`)
 
 ```bash
-uv run orchestrator
-```
-
-Dev alternative:
-
-```bash
-uv run uvicorn src.main:app --reload
-```
-
-Server: `http://localhost:9999`
-
-### 5) Verify health
-
-```bash
-curl http://localhost:9999/health
-```
-
-Expected response:
-
-```json
-{"status":"ok","service":"orchestrator"}
-```
-
-## Example Requests
-
-Weave orchestration runs through `POST /tasks/run`.
-
-### Example: Repo investigation
-
-```bash
-curl -X POST http://localhost:9999/tasks/run \
+curl -s -X POST "$BASE/tenants" \
   -H "Content-Type: application/json" \
-  -d '{
-    "skill_id": "git_inference",
-    "task": "Check whether this repo has a payments service and whether feature flags control it.",
-    "tenant_id": "default",
-    "context": {},
-    "input": {
-      "repo": "https://github.com/open-telemetry/opentelemetry-demo",
-      "question": "Check whether this repo has a payments service and whether feature flags control it."
-    }
-  }'
+  -d '{"slug":"dev","display_name":"Dev","plan_slug":"starter"}'
 ```
 
-### Example: Incident-oriented request
+**2 — Register a skill** (example: HTTP check; no integration required)
 
-```json
-{
-  "skill_id": "log_analysis",
-  "task": "Investigate repeated login failures in production in the last 30 minutes.",
-  "tenant_id": "default",
-  "context": {
-    "service": "auth-service",
-    "environment": "prod"
-  },
-  "input": {
-    "objective": "Find likely root cause and next action for login failures."
-  }
-}
+```bash
+curl -s -X POST "$BASE/tenants/dev/skills" \
+  -H "Content-Type: application/json" \
+  -d @orchestrator/skills/http_check.json
 ```
 
-Notes:
-- `skill_id` lets you force a preferred skill before planner fallback.
-- `input` must satisfy the selected skill's `input_schema`.
-- Output includes synthesized summary, step-level execution details, and token cost metadata.
+**3 — Add an integration** (example: Loki — needed for skills whose **`capabilities`** include `loki_*` tools; point **`url`** at a real Loki when you have one)
+
+```bash
+curl -s -X POST "$BASE/tenants/dev/integrations" \
+  -H "Content-Type: application/json" \
+  -d '{"type":"LOG_SOURCE","flavour":"LOKI","url":"http://localhost:3100","active":true}'
+```
+
+**4 — Run a task**
+
+```bash
+curl -s -X POST "$BASE/tasks/run" \
+  -H "Content-Type: application/json" \
+  -d '{"objective":"Health check","slug":"dev","skill_id":"http_check","input":{"url":"https://example.com"}}'
+```
+
+Request body: **`objective`** and **`slug`** required; **`skill_id`** and **`input`** optional. Omit **`skill_id`** to use the planner (it only sees skills already stored for that tenant).
+
+With Loki registered, you can **`POST`** e.g. `orchestrator/skills/logql_generation.json` and run a task with **`"skill_id": "logql_generation"`** and a body that matches that skill’s schema.
+
+---
 
 ## Configuration
 
-### Skills
-Add skills in:
-- `orchestrator/skills/defaults/` for versioned default skills
-- `orchestrator/skills/<tenant_id>/` for tenant-specific overrides
+- **Runtime tuning** — `orchestrator/config.yaml` (CORS, database pool, auth defaults, public routes, quota route patterns). Overrides: **`ORCHESTRATOR_*`** env vars with **`__`** for nesting (e.g. `ORCHESTRATOR_DATABASE__URL`).
+- **Secrets and integrations** — not in `config.yaml` for MCP/log stacks: create **integrations** per tenant via the API (see walkthrough and [`orchestrator/README.md`](orchestrator/README.md)).
+- **Orchestrator package details** — layout, OpenAPI, DB maintenance, scripts: **[orchestrator/README.md](orchestrator/README.md)**.
 
-Minimal skill example:
-
-```yaml
-id: my_new_skill
-name: My New Skill
-description: Summarize a production issue with key evidence.
-kind: simple
-instructions: |
-  You are an SRE assistant. Analyze the input and return a concise, actionable summary.
-capabilities:
-  - opensearch_fetch_logs
-model: gpt-5.1
-input_schema:
-  type: object
-  properties:
-    objective:
-      type: string
-  required: [objective]
-```
-
-### MCP servers
-Configure under `orchestrator/config.yaml` in top-level `mcp`:
-
-```yaml
-mcp:
-  github:
-    enabled: true
-    type: streamable_http
-    url: https://api.githubcopilot.com/mcp/x/repos/readonly
-    headers:
-      Authorization: "Bearer <YOUR_PAT>"
-    timeout: 15
-    sse_read_timeout: 300
-    cache_tools_list: true
-```
-
-Attach to a skill:
-
-```yaml
-mcp_servers:
-  - github
-```
-
-Transport requirements:
-- `type: stdio` requires `command` (optional `args` and `env`)
-- `type: sse` and `type: streamable_http` require `url`
+---
 
 ## Project Layout
 
@@ -198,29 +152,34 @@ weave/
   docker-compose.yml
   README.md
   orchestrator/
+    README.md           # package / dev details
+    CLAUD.md            # coding conventions
     config.yaml
     pyproject.toml
-    skills/
-      defaults/
-      <tenant_id>/
+    spec/openapi.yaml
+    schema/init.sql
+    skills/             # JSON templates → POST …/tenants/{slug}/skills
+    scripts/
     src/
       api/
-      agent_factories/
-      config/
       core/
-      domain/
-      infrastructure/
+      storage/
       integrations/
+      config/
+      …
     tests/
 ```
 
+---
+
 ## Developing Locally
 
-Run tests from `orchestrator/`:
-
 ```bash
+cd orchestrator
 uv run pytest
 ```
+
+---
 
 ## Contributing
 

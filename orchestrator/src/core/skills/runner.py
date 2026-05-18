@@ -10,6 +10,7 @@ from agents import Agent, Runner, RunResult
 from agents.mcp import MCPServerManager
 
 from src.core.base import InvocationCost, extract_runner_cost
+from src.core.mcp.provider import McpProvider
 from src.core.skills import (
     SkillDef,
     SkillResult,
@@ -17,9 +18,11 @@ from src.core.skills import (
     SkillStep,
     StepResult,
 )
-from src.core.skills.registry import SkillRegistry
-from src.core.tools.base import ToolNotFoundError, ToolRegistry
-from src.core.mcp import McpServerRegistry
+from src.core.skills.input_validation import validate_skill_instance
+from src.core.skills.json_schema_agent_output import SkillJsonSchemaOutput
+from src.core.tools.base import ToolDescriptor, ToolNotFoundError
+from src.core.tools.provider import ToolProvider
+from src.storage.interface import StorageGateway
 
 logger = logging.getLogger(__name__)
 
@@ -27,29 +30,30 @@ _MAX_SKILL_DEPTH = 20
 
 
 class SkillRunner:
-    """Runs skills loaded from SkillRegistry using tools from a ToolRegistry."""
+    """Runs skills using tenant-scoped tools and MCP servers resolved from the DB."""
 
     def __init__(
         self,
-        skill_registry: SkillRegistry,
-        tool_registry: ToolRegistry,
-        *,
-        mcp_registry: McpServerRegistry | None = None,
+        storage: StorageGateway,
+        tool_provider: ToolProvider,
+        mcp_provider: McpProvider,
     ) -> None:
-        self._skill_registry = skill_registry
-        self._tool_registry = tool_registry
-        self._mcp_registry = mcp_registry
+        self._storage = storage
+        self._tool_provider = tool_provider
+        self._mcp_provider = mcp_provider
 
-    @property
-    def tool_registry(self) -> ToolRegistry:
-        """Platform tools used to resolve skill capabilities and plan invoke_tool steps."""
-        return self._tool_registry
+    async def resolve_tool(self, name: str, tenant_id: str) -> Any:
+        """Resolve a single tool by name for the given tenant. Raises ToolNotFoundError."""
+        return await self._tool_provider.resolve_one(name, tenant_id)
+
+    async def list_tool_descriptors(self, tenant_id: str) -> list[ToolDescriptor]:
+        """Return descriptors for all tools available to the given tenant."""
+        return await self._tool_provider.list_descriptors(tenant_id)
 
     async def run_skill(
         self,
         skill_id: str,
         input_payload: dict[str, Any],
-        context: dict[str, Any],
         tenant_id: str,
         *,
         _depth: int = 0,
@@ -58,60 +62,59 @@ class SkillRunner:
             return SkillResult(
                 success=False,
                 error=f"Max skill nesting depth exceeded ({_MAX_SKILL_DEPTH})",
+                steps_completed=[],
             )
+        row = await self._storage.tenant_skills.get_for_tenant(tenant_id, skill_id)
+        if row is None:
+            return SkillResult(success=False, error=f"Unknown skill_id: {skill_id!r}", steps_completed=[])
         try:
-            skill = self._skill_registry.get(skill_id, tenant_id)
-        except KeyError as e:
-            return SkillResult(success=False, error=str(e))
+            skill = SkillDef.model_validate(row.definition)
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("Invalid skill definition for %s/%s", tenant_id, skill_id)
+            return SkillResult(success=False, error=f"Invalid skill definition: {exc}", steps_completed=[])
+
+        if skill.kind == "composed" and _depth > 0:
+            return SkillResult(
+                success=False,
+                error=(
+                    f"Nested composed skills are not allowed: {skill_id!r} cannot be invoked "
+                    "from inside another composed skill"
+                ),
+                steps_completed=[],
+            )
 
         try:
             self._validate_input(skill, input_payload)
         except ValueError as e:
-            return SkillResult(success=False, error=str(e))
+            return SkillResult(success=False, error=str(e), steps_completed=[])
 
         try:
             if skill.kind == "simple":
-                return await self._run_simple(skill, input_payload, context, _depth)
-            return await self._run_composed(
-                skill, input_payload, context, tenant_id, _depth
-            )
+                return await self._run_simple(skill, input_payload, tenant_id, _depth)
+            return await self._run_composed(skill, input_payload, tenant_id, _depth)
         except Exception as exc:  # noqa: BLE001
             logger.exception("Skill run failed: %s", skill_id)
-            return SkillResult(success=False, error=str(exc))
+            return SkillResult(success=False, error=str(exc), steps_completed=[])
 
     def _validate_input(self, skill: SkillDef, input_payload: dict[str, Any]) -> None:
-        schema = skill.input_schema
-        if not schema or not isinstance(schema, dict):
-            return
-        required = schema.get("required")
-        if not required or not isinstance(required, list):
-            return
-        missing = [k for k in required if k not in input_payload]
-        if missing:
-            raise ValueError(
-                f"Missing required input fields per input_schema: {missing!r}"
-            )
+        validate_skill_instance(skill, input_payload)
 
     async def _run_simple(
         self,
         skill: SkillDef,
         input_payload: dict[str, Any],
-        context: dict[str, Any],
+        tenant_id: str,
         _depth: int,
     ) -> SkillResult:
-        tools: list[Any] = []
-        for tool_id in skill.capabilities:
-            try:
-                tool = self._tool_registry.resolve(tool_id, context)
-                tools.append(tool.as_function_tool())
-            except ToolNotFoundError as e:
-                return SkillResult(success=False, error=str(e))
+        resolved_tools = await self._tool_provider.resolve(skill.capabilities, tenant_id)
+        tools = [t.as_function_tool() for t in resolved_tools]
 
-        mcp_instances = (
-            self._mcp_registry.build_servers(skill.mcp_servers)
-            if self._mcp_registry is not None
-            else []
-        )
+        mcp_instances = await self._mcp_provider.resolve(skill.mcp_servers, tenant_id)
+        output_type: SkillJsonSchemaOutput | None = None
+        schema = skill.output_schema
+        if schema and isinstance(schema, dict) and len(schema) > 0:
+            output_type = SkillJsonSchemaOutput(skill, strict_json_schema=False)
+
         if mcp_instances:
             async with MCPServerManager(
                 mcp_instances,
@@ -124,7 +127,7 @@ class SkillRunner:
                     instructions=skill.instructions,
                     tools=tools,
                     mcp_servers=mgr.active_servers,
-                    output_type=None,
+                    output_type=output_type,
                 )
                 result: RunResult = await Runner.run(
                     starting_agent=agent,
@@ -137,24 +140,25 @@ class SkillRunner:
                 instructions=skill.instructions,
                 tools=tools,
                 mcp_servers=[],
-                output_type=None,
+                output_type=output_type,
             )
             result = await Runner.run(
                 starting_agent=agent,
                 input=json.dumps(input_payload),
             )
+
         cost = extract_runner_cost(result, f"simple_skill:{skill.id}")
         return SkillResult(
             success=True,
             output=result.final_output,
             cost=cost,
+            steps_completed=[],
         )
 
     async def _run_composed(
         self,
         skill: SkillDef,
         input_payload: dict[str, Any],
-        context: dict[str, Any],
         tenant_id: str,
         _depth: int,
     ) -> SkillResult:
@@ -165,7 +169,6 @@ class SkillRunner:
             step_result, step_cost = await self._execute_step(
                 step=step,
                 run_context=run_context,
-                context=context,
                 tenant_id=tenant_id,
                 parent_model=skill.model,
                 _depth=_depth,
@@ -176,10 +179,16 @@ class SkillRunner:
 
             if not step_result.success:
                 total = sum(c.total_tokens for c in children)
+                last_out = (
+                    run_context.steps_completed[-1].output
+                    if run_context.steps_completed
+                    else None
+                )
                 return SkillResult(
                     success=False,
-                    output=run_context.model_dump(),
+                    output=last_out,
                     error=step_result.error or "Step failed",
+                    steps_completed=list(run_context.steps_completed),
                     cost=InvocationCost(
                         label=f"composed_skill:{skill.id}",
                         children=children,
@@ -188,9 +197,15 @@ class SkillRunner:
                 )
 
         total = sum(c.total_tokens for c in children)
+        last_out = (
+            run_context.steps_completed[-1].output
+            if run_context.steps_completed
+            else None
+        )
         return SkillResult(
             success=True,
-            output=run_context.model_dump(),
+            output=last_out,
+            steps_completed=list(run_context.steps_completed),
             cost=InvocationCost(
                 label=f"composed_skill:{skill.id}",
                 children=children,
@@ -202,7 +217,6 @@ class SkillRunner:
         self,
         step: SkillStep,
         run_context: SkillRunContext,
-        context: dict[str, Any],
         tenant_id: str,
         parent_model: str,
         _depth: int,
@@ -212,7 +226,6 @@ class SkillRunner:
             sub = await self.run_skill(
                 step.skill_id,
                 run_context.model_dump(),
-                context,
                 tenant_id,
                 _depth=_depth + 1,
             )
@@ -223,6 +236,7 @@ class SkillRunner:
                     success=sub.success,
                     output=sub.output,
                     error=sub.error,
+                    invoked_skill_id=step.skill_id,
                 ),
                 sub.cost,
             )
@@ -230,7 +244,7 @@ class SkillRunner:
         if step.type == "invoke_tool":
             assert step.tool_id is not None
             try:
-                tool = self._tool_registry.resolve(step.tool_id, context)
+                tool = await self._tool_provider.resolve_one(step.tool_id, tenant_id)
                 out = tool.execute(**(step.params or {}))
             except Exception as exc:  # noqa: BLE001
                 return (
@@ -240,6 +254,7 @@ class SkillRunner:
                         success=False,
                         output=None,
                         error=str(exc),
+                        invoked_tool_id=step.tool_id,
                     ),
                     InvocationCost(
                         label=f"tool:{step.tool_id}",
@@ -254,6 +269,7 @@ class SkillRunner:
                     success=True,
                     output=out,
                     error=None,
+                    invoked_tool_id=step.tool_id,
                 ),
                 InvocationCost(
                     label=f"tool:{step.tool_id}",

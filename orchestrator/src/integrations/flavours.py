@@ -1,8 +1,17 @@
 """
-Source flavour enums for log and trace integrations.
-Defined in the integration layer so API and core share the same set.
+Integration type and flavour enums shared across API, core, and integrations.
+
+IntegrationType values match TenantIntegrationTypeV1 / DB integration_type column.
+Flavour enums identify the specific backend within log and trace categories.
 """
 from enum import Enum
+
+
+class IntegrationType(str, Enum):
+    LOG_SOURCE = "LOG_SOURCE"
+    TRACE_SOURCE = "TRACE_SOURCE"
+    REPOSITORY = "REPOSITORY"
+    MCP = "MCP"
 
 
 class LogSourceFlavour(str, Enum):

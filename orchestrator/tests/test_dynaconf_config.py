@@ -39,47 +39,35 @@ def test_load_config_supports_nested_env_override(
     _write_config(
         config_path,
         """
-mcp:
-  github:
-    enabled: true
-    type: streamable_http
-    url: https://example.com/mcp
-    headers:
-      Authorization: "Bearer test"
+database:
+  pool_size: 3
+  max_overflow: 5
 """.strip(),
     )
 
+    monkeypatch.setenv("ORCHESTRATOR_DATABASE__POOL_SIZE", "7")
     monkeypatch.setenv(
-        "ORCHESTRATOR_MCP__GITHUB__HEADERS__Authorization",
-        "Bearer override",
-    )
-    monkeypatch.setenv(
-        "ORCHESTRATOR_MCP__GITHUB__URL",
-        "https://override.example/mcp",
+        "ORCHESTRATOR_DATABASE__MAX_OVERFLOW",
+        "9",
     )
 
     config = load_config(config_path)
 
-    github = config.mcp["github"]
-    assert github.url == "https://override.example/mcp"
-    assert github.headers["Authorization"] == "Bearer override"
+    assert config.database.pool_size == 7
+    assert config.database.max_overflow == 9
 
 
-def test_load_config_missing_required_auth_fails(tmp_path: Path) -> None:
+def test_load_config_rejects_invalid_database_pool_size(tmp_path: Path) -> None:
+    from pydantic import ValidationError
+
     config_path = tmp_path / "config.yaml"
     _write_config(
         config_path,
         """
-mcp:
-  github:
-    enabled: true
-    type: streamable_http
-    url: https://example.com/mcp
-    headers: {}
+database:
+  pool_size: not-an-int
 """.strip(),
     )
 
-    with pytest.raises(ValueError) as exc:
+    with pytest.raises(ValidationError):
         load_config(config_path)
-
-    assert "headers.Authorization" in str(exc.value)

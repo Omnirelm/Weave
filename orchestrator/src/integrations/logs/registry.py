@@ -10,10 +10,10 @@ from ..common.auth import build_headers_and_oauth_from_auth_dict
 from .loki import GrafanaLokiExtractor
 from .opensearch import OpenSearchExtractor
 from .clickhouse import ClickHouseExtractor
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator
 from typing import Any
 
-# Type: (spec, default_tenant_id) -> LogExtractor
+# Type: (spec, default_loki_org_id) -> LogExtractor
 
 
 
@@ -30,7 +30,11 @@ class LogSourceSpec(BaseModel):
 
     flavour: str
     url: str
-    tenant_id: str | None = Field(default=None, alias="tenantId")
+    loki_org_id: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("lokiOrgId", "tenantId"),
+        serialization_alias="lokiOrgId",
+    )
     headers: dict[str, str] = Field(default_factory=dict)
     index_pattern: str | None = Field(default=None, alias="indexPattern")
     database: str | None = None
@@ -73,7 +77,7 @@ def register(log_flavour: str, factory: _LogFactory) -> None:
 
 def get_log_extractor(
     spec: LogSourceSpec,
-    default_tenant_id: str = "default",
+    default_loki_org_id: str = "default",
 ) -> LogExtractor:
     """
     Create a LogExtractor from a validated LogSourceSpec.
@@ -82,7 +86,7 @@ def get_log_extractor(
 
     Args:
         spec: Connection and auth fields for the log backend.
-        default_tenant_id: Loki org id when spec.tenant_id is unset.
+        default_loki_org_id: Loki org id when spec.loki_org_id is unset.
 
     Returns:
         LogExtractor instance.
@@ -101,11 +105,11 @@ def get_log_extractor(
     if not factory:
         raise ValueError(f"Unsupported log source flavour: {flavour}")
 
-    return factory(spec, default_tenant_id)
+    return factory(spec, default_loki_org_id)
 
 
-def _factory_opensearch(spec: LogSourceSpec, default_tenant_id: str) -> LogExtractor:
-    _ = default_tenant_id
+def _factory_opensearch(spec: LogSourceSpec, default_loki_org_id: str) -> LogExtractor:
+    _ = default_loki_org_id
     base_url = spec.url.rstrip("/")
     index_pattern = spec.index_pattern or "logs-*"
     result = build_headers_and_oauth_from_auth_dict(spec.auth_mechanism)
@@ -118,21 +122,21 @@ def _factory_opensearch(spec: LogSourceSpec, default_tenant_id: str) -> LogExtra
     )
 
 
-def _factory_loki(spec: LogSourceSpec, default_tenant_id: str) -> LogExtractor:
+def _factory_loki(spec: LogSourceSpec, default_loki_org_id: str) -> LogExtractor:
     base_url = spec.url.rstrip("/")
     result = build_headers_and_oauth_from_auth_dict(spec.auth_mechanism)
-    effective_tenant = (spec.tenant_id or "").strip() or default_tenant_id
+    effective_loki_org_id = (spec.loki_org_id or "").strip() or default_loki_org_id
     headers = _merge_spec_headers(spec, result.headers)
     return GrafanaLokiExtractor(
         base_url=base_url,
-        tenant_id=effective_tenant,
+        loki_org_id=effective_loki_org_id,
         headers=headers,
         oauth_token_manager=result.oauth_token_manager,
     )
 
 
-def _factory_clickhouse(spec: LogSourceSpec, default_tenant_id: str) -> LogExtractor:
-    _ = default_tenant_id
+def _factory_clickhouse(spec: LogSourceSpec, default_loki_org_id: str) -> LogExtractor:
+    _ = default_loki_org_id
     base_url = spec.url.rstrip("/")
     database = spec.database or "default"
     table = spec.table or "otel_logs"

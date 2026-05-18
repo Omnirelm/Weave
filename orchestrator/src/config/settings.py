@@ -3,16 +3,75 @@ from functools import lru_cache
 from pathlib import Path
 
 from dynaconf import Dynaconf
-from pydantic import BaseModel, ConfigDict, Field
-
-from src.core.mcp import McpServerConfig
-from src.integrations.logs.config import LogSourceConfig
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
-class ToolsConfig(BaseModel):
+class DatabaseConfig(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
-    logging: dict[str, LogSourceConfig] = Field(default_factory=dict)
+    url: str = "postgresql+asyncpg://localhost/orchestrator"
+    pool_size: int = 5
+    max_overflow: int = 10
+    pool_timeout: int = 30
+    pool_recycle: int = 1800
+    echo: bool = False
+
+
+class CorsConfig(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    allow_origins: list[str] = Field(default_factory=lambda: ["http://localhost", "http://localhost:3000"])
+    allow_methods: list[str] = Field(default_factory=lambda: ["*"])
+    allow_headers: list[str] = Field(default_factory=lambda: ["*"])
+    allow_credentials: bool = True
+    max_age: int = 600
+
+
+class PublicRouteRule(BaseModel):
+    """Exact path + methods that skip API-key checks (e.g. health, tenant signup)."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    methods: list[str]
+    path: str
+
+    @field_validator("methods", mode="before")
+    @classmethod
+    def _upper_methods(cls, v: list[str]) -> list[str]:
+        return [m.upper() for m in v]
+
+
+class QuotaRouteRule(BaseModel):
+    """Maps HTTP requests to a plan_quotas.operation value for quota enforcement.
+
+    First matching rule wins (list order matters). ``path_pattern`` is a regex
+    matched against the normalized URL path (no trailing slash except ``/``).
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    path_pattern: str
+    methods: list[str] = Field(default_factory=lambda: ["POST"])
+    operation: str
+    tenant_in_body: bool = False
+    body_slug_field: str = "slug"
+    max_body_bytes: int = 1_048_576
+
+    @field_validator("methods", mode="before")
+    @classmethod
+    def _upper_methods(cls, v: list[str]) -> list[str]:
+        return [m.upper() for m in v]
+
+
+class AuthConfig(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    disabled: bool = True
+    quota_disabled: bool = True
+    api_key_pepper: str = "change-me"
+    # Defaults live in repo ``config.yaml`` (public_routes / quota_routes).
+    public_routes: list[PublicRouteRule] = Field(default_factory=list)
+    quota_routes: list[QuotaRouteRule] = Field(default_factory=list)
 
 
 class OrchestratorConfig(BaseModel):
@@ -23,8 +82,9 @@ class OrchestratorConfig(BaseModel):
     log_level: str = "INFO"
     config_file: str = "config.yaml"
     openai_api_key: str | None = None
-    tools: ToolsConfig = Field(default_factory=ToolsConfig)
-    mcp: dict[str, McpServerConfig] = Field(default_factory=dict)
+    cors: CorsConfig = Field(default_factory=CorsConfig)
+    database: DatabaseConfig = Field(default_factory=DatabaseConfig)
+    auth: AuthConfig = Field(default_factory=AuthConfig)
 
 
 def _project_root() -> Path:
@@ -45,39 +105,6 @@ def _load_config_source(path: str | Path | None = None) -> Dynaconf:
     )
 
 
-def _validate_required_runtime_values(config: OrchestratorConfig) -> None:
-    missing: list[str] = []
-
-    for source_name, source in config.tools.logging.items():
-        if not source.enabled:
-            continue
-        if source.auth and source.auth.api_key and not source.auth.api_key.api_key:
-            missing.append(f"tools.logging.{source_name}.auth.apiKey.apiKey")
-        if source.auth and source.auth.bearer and not source.auth.bearer.token:
-            missing.append(f"tools.logging.{source_name}.auth.bearer.token")
-        if source.auth and source.auth.basic:
-            if not source.auth.basic.username:
-                missing.append(f"tools.logging.{source_name}.auth.basic.username")
-            if not source.auth.basic.password:
-                missing.append(f"tools.logging.{source_name}.auth.basic.password")
-
-    for server_name, server in config.mcp.items():
-        if not server.enabled:
-            continue
-        if server.type == "stdio" and not (server.command or "").strip():
-            missing.append(f"mcp.{server_name}.command")
-        if server.type in ("sse", "streamable_http") and not (server.url or "").strip():
-            missing.append(f"mcp.{server_name}.url")
-        auth_header = server.headers.get("Authorization")
-        if server.type == "streamable_http" and not (auth_header or "").strip():
-            missing.append(f"mcp.{server_name}.headers.Authorization")
-
-    if missing:
-        raise ValueError(
-            "Missing required runtime configuration values: " + ", ".join(missing)
-        )
-
-
 def _apply_runtime_env(config: OrchestratorConfig) -> None:
     """Hydrate runtime env from config where downstream SDKs expect env vars."""
     if config.openai_api_key and not os.getenv("OPENAI_API_KEY"):
@@ -94,11 +121,11 @@ def load_config(path: str | Path | None = None) -> OrchestratorConfig:
         "openai_api_key": dynasettings.get(
             "openai_api_key", dynasettings.get("OPENAI_API_KEY", os.getenv("OPENAI_API_KEY"))
         ),
-        "tools": dynasettings.get("tools", {}),
-        "mcp": dynasettings.get("mcp", {}),
+        "cors": dynasettings.get("cors", {}),
+        "database": dynasettings.get("database", {}),
+        "auth": dynasettings.get("auth", {}),
     }
     config = OrchestratorConfig.model_validate(payload)
-    _validate_required_runtime_values(config)
     _apply_runtime_env(config)
     return config
 

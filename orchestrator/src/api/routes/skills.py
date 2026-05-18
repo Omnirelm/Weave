@@ -2,34 +2,52 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
-from pydantic import BaseModel, Field
+from fastapi import APIRouter, HTTPException, Request, Response, status
 
-from src.core.skills import SkillDef, SkillRegistry, SkillResult, SkillRunner
+from src.api.models.schemas import SkillResource
+from src.api.translators.skills import (
+    resource_to_skill_def,
+    skill_def_to_resource,
+)
+from src.core.skills import SkillDef
+from src.core.skills.composition_validation import validate_composed_invoke_targets_not_composed
+from src.storage.interface import StorageGateway
 
-router = APIRouter(prefix="/skills", tags=["skills"])
-
-
-def _get_registry(request: Request) -> SkillRegistry:
-    return request.app.state.skill_registry
-
-
-def _get_runner(request: Request) -> SkillRunner:
-    return request.app.state.skill_runner
+router = APIRouter(tags=["skills"])
 
 
-class ExecuteSkillRequest(BaseModel):
-    input: dict[str, Any]
-    context: dict[str, Any] = Field(default_factory=dict)
+def _get_storage(request: Request) -> StorageGateway:
+    return request.app.state.storage
 
 
-@router.get("", response_model=list[SkillDef])
-def list_skills(
-    tenant_id: str = Query(default="default"),
-    registry: SkillRegistry = Depends(_get_registry),
-) -> list[SkillDef]:
+async def _require_tenant(storage: StorageGateway, slug: str) -> None:
+    if await storage.tenants.get_by_slug(slug) is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Tenant not found: {slug}",
+        )
+
+
+def _skill_def_to_upsert_payload(skill: SkillDef) -> dict[str, Any]:
+    return {
+        "skill_id": skill.id,
+        "kind": skill.kind,
+        "name": skill.name,
+        "model": skill.model,
+        "definition": skill.model_dump(mode="python"),
+    }
+
+
+@router.get("/tenants/{slug}/skills", response_model=list[SkillResource])
+async def list_skills(slug: str, request: Request) -> list[SkillResource]:
+    storage = _get_storage(request)
+    await _require_tenant(storage, slug)
     try:
-        return registry.list_skills(tenant_id=tenant_id)
+        rows = await storage.tenant_skills.list_for_tenant(slug)
+        return [
+            skill_def_to_resource(SkillDef.model_validate(row.definition))
+            for row in rows
+        ]
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -37,19 +55,20 @@ def list_skills(
         ) from exc
 
 
-@router.get("/{skill_id}", response_model=SkillDef)
-def get_skill(
-    skill_id: str,
-    tenant_id: str = Query(default="default"),
-    registry: SkillRegistry = Depends(_get_registry),
-) -> SkillDef:
+@router.get("/tenants/{slug}/skills/{skill_id}", response_model=SkillResource)
+async def get_skill(skill_id: str, slug: str, request: Request) -> SkillResource:
+    storage = _get_storage(request)
+    await _require_tenant(storage, slug)
     try:
-        return registry.get(skill_id=skill_id, tenant_id=tenant_id)
-    except KeyError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Skill not found: {skill_id}",
-        ) from exc
+        row = await storage.tenant_skills.get_for_tenant(slug, skill_id)
+        if row is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Skill not found: {skill_id}",
+            )
+        return skill_def_to_resource(SkillDef.model_validate(row.definition))
+    except HTTPException:
+        raise
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -57,14 +76,17 @@ def get_skill(
         ) from exc
 
 
-@router.post("", response_model=SkillDef)
-def save_skill(
-    skill: SkillDef,
-    tenant_id: str = Query(default="default"),
-    registry: SkillRegistry = Depends(_get_registry),
-) -> SkillDef:
+@router.post("/tenants/{slug}/skills", response_model=SkillResource)
+async def save_skill(skill: SkillResource, slug: str, request: Request) -> SkillResource:
+    storage = _get_storage(request)
+    await _require_tenant(storage, slug)
     try:
-        return registry.save(skill_def=skill, tenant_id=tenant_id)
+        skill_def = resource_to_skill_def(skill)
+        await validate_composed_invoke_targets_not_composed(storage, slug, skill_def)
+        row = await storage.tenant_skills.upsert_for_tenant(
+            slug, _skill_def_to_upsert_payload(skill_def)
+        )
+        return skill_def_to_resource(SkillDef.model_validate(row.definition))
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -77,70 +99,22 @@ def save_skill(
         ) from exc
 
 
-@router.delete("/{skill_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_skill(
-    skill_id: str,
-    tenant_id: str = Query(default="default"),
-    registry: SkillRegistry = Depends(_get_registry),
-) -> Response:
+@router.delete("/tenants/{slug}/skills/{skill_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_skill(skill_id: str, slug: str, request: Request) -> Response:
+    storage = _get_storage(request)
+    await _require_tenant(storage, slug)
     try:
-        registry.delete(skill_id=skill_id, tenant_id=tenant_id)
+        deleted = await storage.tenant_skills.delete_for_tenant(slug, skill_id)
+        if not deleted:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Skill not found: {skill_id}",
+            )
         return Response(status_code=status.HTTP_204_NO_CONTENT)
-    except ValueError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(exc),
-        ) from exc
-    except KeyError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Skill not found: {skill_id}",
-        ) from exc
+    except HTTPException:
+        raise
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to delete skill: {exc}",
         ) from exc
-
-
-@router.post("/{skill_id}/execute", response_model=SkillResult)
-async def execute_skill(
-    skill_id: str,
-    body: ExecuteSkillRequest,
-    tenant_id: str = Query(default="default"),
-    registry: SkillRegistry = Depends(_get_registry),
-    runner: SkillRunner = Depends(_get_runner),
-) -> SkillResult:
-    # Distinguish unknown skill from execution failure.
-    try:
-        registry.get(skill_id=skill_id, tenant_id=tenant_id)
-    except KeyError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Skill not found: {skill_id}",
-        ) from exc
-
-    try:
-        result = await runner.run_skill(
-            skill_id=skill_id,
-            input_payload=body.input,
-            context=body.context,
-            tenant_id=tenant_id,
-        )
-    except Exception as exc:  # noqa: BLE001
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to execute skill: {exc}",
-        ) from exc
-
-    if result.success:
-        return result
-
-    error_detail = result.error or "Skill execution failed"
-    if "Missing required input fields per input_schema" in error_detail:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=error_detail,
-        )
-
-    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=error_detail)

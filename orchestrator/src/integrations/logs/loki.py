@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 class GrafanaLokiExtractor(LogExtractor):
     """Grafana Loki log exporter implementation"""
     
-    def __init__(self, base_url: str, tenant_id: Optional[str] = None, 
+    def __init__(self, base_url: str, loki_org_id: Optional[str] = None, 
                  headers: Optional[Dict[str, str]] = None,
                  oauth_token_manager: Optional[OAuthTokenManager] = None):
         """
@@ -23,25 +23,25 @@ class GrafanaLokiExtractor(LogExtractor):
         
         Args:
             base_url: Loki base URL (e.g., 'http://localhost:3100')
-            tenant_id: Optional tenant ID for multi-tenancy
+            loki_org_id: Optional Loki org ID for multi-tenancy
             headers: Optional headers dictionary (will be merged with tenant headers)
             oauth_token_manager: Optional OAuth token manager for OAuth authentication
         """
         # Set class attributes
-        self.tenant_id = tenant_id
+        self.loki_org_id = loki_org_id
         
         # Start with provided headers or empty dict
         merged_headers = dict(headers) if headers else {}
         
         # Add tenant header if provided
-        if tenant_id:
-            merged_headers['X-Scope-OrgID'] = tenant_id
+        if loki_org_id:
+            merged_headers['X-Scope-OrgID'] = loki_org_id
         
         # Pass oauth_token_manager to base class
         super().__init__(base_url, merged_headers, oauth_token_manager=oauth_token_manager)
     
     @classmethod
-    def from_bearer_token(cls, base_url: str, token: str, tenant_id: Optional[str] = None, 
+    def from_bearer_token(cls, base_url: str, token: str, loki_org_id: Optional[str] = None, 
                          headers: Optional[Dict[str, str]] = None) -> 'GrafanaLokiExtractor':
         """
         Create Grafana Loki extractor with Bearer token authentication.
@@ -49,7 +49,7 @@ class GrafanaLokiExtractor(LogExtractor):
         Args:
             base_url: Loki base URL (e.g., 'http://localhost:3100')
             token: Bearer token for authentication
-            tenant_id: Optional tenant ID for multi-tenancy
+            loki_org_id: Optional Loki org ID for multi-tenancy
             headers: Optional additional headers to merge with auth header
             
         Returns:
@@ -64,11 +64,11 @@ class GrafanaLokiExtractor(LogExtractor):
             auth_headers.update(headers)
         
         # Use standard __init__ with pre-built headers
-        return cls(base_url, tenant_id=tenant_id, headers=auth_headers)
+        return cls(base_url, loki_org_id=loki_org_id, headers=auth_headers)
     
     @classmethod
     def from_basic_auth(cls, base_url: str, username: str, password: str, 
-                       tenant_id: Optional[str] = None, headers: Optional[Dict[str, str]] = None) -> 'GrafanaLokiExtractor':
+                       loki_org_id: Optional[str] = None, headers: Optional[Dict[str, str]] = None) -> 'GrafanaLokiExtractor':
         """
         Create Grafana Loki extractor with Basic authentication.
         
@@ -76,7 +76,7 @@ class GrafanaLokiExtractor(LogExtractor):
             base_url: Loki base URL (e.g., 'http://localhost:3100')
             username: Username for Basic authentication
             password: Password for Basic authentication
-            tenant_id: Optional tenant ID for multi-tenancy
+            loki_org_id: Optional Loki org ID for multi-tenancy
             headers: Optional additional headers to merge with auth header
             
         Returns:
@@ -94,11 +94,11 @@ class GrafanaLokiExtractor(LogExtractor):
             auth_headers.update(headers)
         
         # Use standard __init__ with pre-built headers
-        return cls(base_url, tenant_id=tenant_id, headers=auth_headers)
+        return cls(base_url, loki_org_id=loki_org_id, headers=auth_headers)
     
     @classmethod
     def from_api_key(cls, base_url: str, api_key: str, header_name: str = 'X-API-Key',
-                    tenant_id: Optional[str] = None, headers: Optional[Dict[str, str]] = None) -> 'GrafanaLokiExtractor':
+                    loki_org_id: Optional[str] = None, headers: Optional[Dict[str, str]] = None) -> 'GrafanaLokiExtractor':
         """
         Create Grafana Loki extractor with API key authentication.
         
@@ -106,7 +106,7 @@ class GrafanaLokiExtractor(LogExtractor):
             base_url: Loki base URL (e.g., 'http://localhost:3100')
             api_key: API key for authentication
             header_name: Header name to use for API key (default: 'X-API-Key')
-            tenant_id: Optional tenant ID for multi-tenancy
+            loki_org_id: Optional Loki org ID for multi-tenancy
             headers: Optional additional headers to merge with API key header
             
         Returns:
@@ -121,18 +121,18 @@ class GrafanaLokiExtractor(LogExtractor):
             auth_headers.update(headers)
         
         # Use standard __init__ with pre-built headers
-        return cls(base_url, tenant_id=tenant_id, headers=auth_headers)
+        return cls(base_url, loki_org_id=loki_org_id, headers=auth_headers)
     
     @classmethod
     def from_oauth(cls, base_url: str, oauth_config: OAuthConfig,
-                   tenant_id: Optional[str] = None, headers: Optional[Dict[str, str]] = None) -> 'GrafanaLokiExtractor':
+                   loki_org_id: Optional[str] = None, headers: Optional[Dict[str, str]] = None) -> 'GrafanaLokiExtractor':
         """
         Create Grafana Loki extractor with OAuth 2.0 Client Credentials authentication.
         
         Args:
             base_url: Loki base URL (e.g., 'http://localhost:3100')
             oauth_config: OAuth configuration (client_id, client_secret, token_url, etc.)
-            tenant_id: Optional tenant ID for multi-tenancy
+            loki_org_id: Optional Loki org ID for multi-tenancy
             headers: Optional additional headers to merge with auth header
             
         Returns:
@@ -143,12 +143,12 @@ class GrafanaLokiExtractor(LogExtractor):
         
         # Use standard __init__ with OAuth token manager
         # Headers will be merged when making requests
-        return cls(base_url, tenant_id=tenant_id, headers=headers, oauth_token_manager=token_manager)
+        return cls(base_url, loki_org_id=loki_org_id, headers=headers, oauth_token_manager=token_manager)
     
     @classmethod
     def from_oauth_params(cls, base_url: str, client_id: str, client_secret: str, token_url: str,
                           scope: Optional[str] = None, token_expiry_buffer: int = 60,
-                          tenant_id: Optional[str] = None, headers: Optional[Dict[str, str]] = None) -> 'GrafanaLokiExtractor':
+                          loki_org_id: Optional[str] = None, headers: Optional[Dict[str, str]] = None) -> 'GrafanaLokiExtractor':
         """
         Create Grafana Loki extractor with OAuth 2.0 Client Credentials authentication using individual parameters.
         
@@ -159,7 +159,7 @@ class GrafanaLokiExtractor(LogExtractor):
             token_url: OAuth token endpoint URL
             scope: Optional OAuth scopes (comma-separated string)
             token_expiry_buffer: Seconds before expiry to refresh token (default: 60)
-            tenant_id: Optional tenant ID for multi-tenancy
+            loki_org_id: Optional Loki org ID for multi-tenancy
             headers: Optional additional headers to merge with auth header
             
         Returns:
@@ -172,7 +172,7 @@ class GrafanaLokiExtractor(LogExtractor):
             scope=scope,
             tokenExpiryBuffer=token_expiry_buffer
         )
-        return cls.from_oauth(base_url, oauth_config, tenant_id=tenant_id, headers=headers)
+        return cls.from_oauth(base_url, oauth_config, loki_org_id=loki_org_id, headers=headers)
     
     def get_log_aggregator_name(self) -> str:
         """

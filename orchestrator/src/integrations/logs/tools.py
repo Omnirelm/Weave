@@ -1,23 +1,33 @@
 """
-Log-related tools for query generation agents (Loki, OpenSearch, ClickHouse).
+Log tools for Loki, OpenSearch, and ClickHouse backends.
 
-Each tool binds an extractor at construction time and can be used programmatically
-via `execute` or by agents via `as_function_tool()`.
+Each flavour has a base class (LokiTool, OpenSearchTool, ClickHouseTool) that
+declares the integration_type/flavour and implements from_config. Concrete tools
+extend the flavour base and only define their execute/as_function_tool logic.
+
+Adding a new tool for an existing backend:
+  1. Subclass the flavour base (e.g. LokiTool).
+  2. Assign name and description class attributes.
+  3. Implement execute() and as_function_tool().
+  4. Register the class in bootstrap.py INTEGRATION_TOOLS.
 """
 
 from __future__ import annotations
 
 import datetime
 import logging
-from typing import Any, List
+from abc import ABC
+from typing import Any, ClassVar, List
 
 from agents.tool import function_tool
 
-from src.core.tools.base import BaseTool
+from src.core.tools.base import IntegrationTool
+from src.integrations.flavours import IntegrationType, LogSourceFlavour
 from src.integrations.logs.base import LogEntry
 from src.integrations.logs.clickhouse import ClickHouseExtractor
 from src.integrations.logs.loki import GrafanaLokiExtractor
 from src.integrations.logs.opensearch import OpenSearchExtractor
+from src.integrations.logs.registry import LogSourceSpec, get_log_extractor
 
 logger = logging.getLogger(__name__)
 
@@ -31,22 +41,65 @@ def _parse_datetime(value: Any) -> datetime.datetime:
     raise TypeError(f"Expected datetime or ISO string, got {type(value)!r}")
 
 
-# --- Loki ---
+# ---------------------------------------------------------------------------
+# Flavour base classes — one per backend
+# ---------------------------------------------------------------------------
+
+class LokiTool(IntegrationTool, ABC):
+    """Base for all Loki tools. Declares the integration and builds the extractor."""
+
+    integration_type: ClassVar[str] = IntegrationType.LOG_SOURCE
+    integration_flavour: ClassVar[str] = LogSourceFlavour.LOKI
+
+    def __init__(self, extractor: GrafanaLokiExtractor) -> None:
+        self._extractor = extractor
+
+    @classmethod
+    def from_config(cls, config: dict[str, Any]) -> "LokiTool":
+        spec = LogSourceSpec.model_validate(config)
+        extractor = get_log_extractor(spec)
+        return cls(extractor)  # type: ignore[return-value]
 
 
-class GetLabelNamesTool(BaseTool):
-    """List Loki label names."""
+class OpenSearchTool(IntegrationTool, ABC):
+    """Base for all OpenSearch tools."""
 
-    def __init__(self, loki_extractor: GrafanaLokiExtractor) -> None:
-        self._extractor = loki_extractor
+    integration_type: ClassVar[str] = IntegrationType.LOG_SOURCE
+    integration_flavour: ClassVar[str] = LogSourceFlavour.OPENSEARCH
 
-    @property
-    def name(self) -> str:
-        return "loki_get_label_names"
+    def __init__(self, extractor: OpenSearchExtractor) -> None:
+        self._extractor = extractor
 
-    @property
-    def description(self) -> str:
-        return "Get available label names from Loki."
+    @classmethod
+    def from_config(cls, config: dict[str, Any]) -> "OpenSearchTool":
+        spec = LogSourceSpec.model_validate(config)
+        extractor = get_log_extractor(spec)
+        return cls(extractor)  # type: ignore[return-value]
+
+
+class ClickHouseTool(IntegrationTool, ABC):
+    """Base for all ClickHouse tools."""
+
+    integration_type: ClassVar[str] = IntegrationType.LOG_SOURCE
+    integration_flavour: ClassVar[str] = LogSourceFlavour.CLICKHOUSE
+
+    def __init__(self, extractor: ClickHouseExtractor) -> None:
+        self._extractor = extractor
+
+    @classmethod
+    def from_config(cls, config: dict[str, Any]) -> "ClickHouseTool":
+        spec = LogSourceSpec.model_validate(config)
+        extractor = get_log_extractor(spec)
+        return cls(extractor)  # type: ignore[return-value]
+
+
+# ---------------------------------------------------------------------------
+# Loki tools
+# ---------------------------------------------------------------------------
+
+class GetLabelNamesTool(LokiTool):
+    name: ClassVar[str] = "loki_get_label_names"
+    description: ClassVar[str] = "Get available label names from Loki."
 
     def execute(self, **kwargs: Any) -> List[str]:
         if kwargs:
@@ -64,19 +117,9 @@ class GetLabelNamesTool(BaseTool):
         return loki_get_label_names
 
 
-class GetLabelValuesTool(BaseTool):
-    """List values for a Loki label."""
-
-    def __init__(self, loki_extractor: GrafanaLokiExtractor) -> None:
-        self._extractor = loki_extractor
-
-    @property
-    def name(self) -> str:
-        return "loki_get_label_values"
-
-    @property
-    def description(self) -> str:
-        return "Get available values for a specific label name from Loki."
+class GetLabelValuesTool(LokiTool):
+    name: ClassVar[str] = "loki_get_label_values"
+    description: ClassVar[str] = "Get available values for a specific label name from Loki."
 
     def execute(self, **kwargs: Any) -> List[str]:
         label_name = kwargs.get("label_name")
@@ -99,27 +142,15 @@ class GetLabelValuesTool(BaseTool):
         return loki_get_label_values
 
 
-class LokiValidateQueryTool(BaseTool):
-    """Run a LogQL query against Loki (validation / preview)."""
-
-    def __init__(self, loki_extractor: GrafanaLokiExtractor) -> None:
-        self._extractor = loki_extractor
-
-    @property
-    def name(self) -> str:
-        return "loki_validate_query"
-
-    @property
-    def description(self) -> str:
-        return "Fetch logs from Loki using a query."
+class LokiValidateQueryTool(LokiTool):
+    name: ClassVar[str] = "loki_validate_query"
+    description: ClassVar[str] = "Fetch logs from Loki using a query."
 
     def execute(self, **kwargs: Any) -> List[LogEntry]:
         query = kwargs.get("query")
         if query is None:
             raise TypeError("loki_validate_query requires query")
-        start = (
-            _parse_datetime(kwargs["start"]) if kwargs.get("start") is not None else None
-        )
+        start = _parse_datetime(kwargs["start"]) if kwargs.get("start") is not None else None
         end = _parse_datetime(kwargs["end"]) if kwargs.get("end") is not None else None
         limit = kwargs.get("limit", 100)
         logger.info("Validating query: %s from %s to %s", query, start, end)
@@ -146,27 +177,15 @@ class LokiValidateQueryTool(BaseTool):
         return loki_validate_query
 
 
-class LokiFetchLogsTool(BaseTool):
-    """Fetch logs from Loki."""
-
-    def __init__(self, loki_extractor: GrafanaLokiExtractor) -> None:
-        self._extractor = loki_extractor
-
-    @property
-    def name(self) -> str:
-        return "loki_fetch_logs"
-
-    @property
-    def description(self) -> str:
-        return "Fetch logs from Loki using a query and optional time range."
+class LokiFetchLogsTool(LokiTool):
+    name: ClassVar[str] = "loki_fetch_logs"
+    description: ClassVar[str] = "Fetch logs from Loki using a query and optional time range."
 
     def execute(self, **kwargs: Any) -> List[LogEntry]:
         query = kwargs.get("query")
         if query is None:
             raise TypeError("loki_fetch_logs requires query")
-        start = (
-            _parse_datetime(kwargs["start"]) if kwargs.get("start") is not None else None
-        )
+        start = _parse_datetime(kwargs["start"]) if kwargs.get("start") is not None else None
         end = _parse_datetime(kwargs["end"]) if kwargs.get("end") is not None else None
         limit = kwargs.get("limit", 100)
         logger.info("Fetching Loki logs: query=%s start=%s end=%s", query, start, end)
@@ -193,22 +212,12 @@ class LokiFetchLogsTool(BaseTool):
         return loki_fetch_logs
 
 
-class LokiCleanQueryStringTool(BaseTool):
-    """Normalize a query string for Loki."""
-
-    def __init__(self, loki_extractor: GrafanaLokiExtractor) -> None:
-        self._extractor = loki_extractor
-
-    @property
-    def name(self) -> str:
-        return "loki_clean_query_string"
-
-    @property
-    def description(self) -> str:
-        return (
-            "Clean the query string by removing markdown code blocks, newlines, "
-            "and extra whitespace."
-        )
+class LokiCleanQueryStringTool(LokiTool):
+    name: ClassVar[str] = "loki_clean_query_string"
+    description: ClassVar[str] = (
+        "Clean the query string by removing markdown code blocks, newlines, "
+        "and extra whitespace."
+    )
 
     def execute(self, **kwargs: Any) -> str:
         query = kwargs.get("query")
@@ -227,22 +236,13 @@ class LokiCleanQueryStringTool(BaseTool):
         return loki_clean_query_string
 
 
-# --- OpenSearch ---
+# ---------------------------------------------------------------------------
+# OpenSearch tools
+# ---------------------------------------------------------------------------
 
-
-class OpenSearchGetFieldNamesTool(BaseTool):
-    """List field names for an OpenSearch index."""
-
-    def __init__(self, opensearch_extractor: OpenSearchExtractor) -> None:
-        self._extractor = opensearch_extractor
-
-    @property
-    def name(self) -> str:
-        return "opensearch_get_field_names"
-
-    @property
-    def description(self) -> str:
-        return "Get available field names from OpenSearch."
+class OpenSearchGetFieldNamesTool(OpenSearchTool):
+    name: ClassVar[str] = "opensearch_get_field_names"
+    description: ClassVar[str] = "Get available field names from OpenSearch."
 
     def execute(self, **kwargs: Any) -> List[str]:
         index = kwargs.get("index")
@@ -261,19 +261,9 @@ class OpenSearchGetFieldNamesTool(BaseTool):
         return opensearch_get_field_names
 
 
-class OpenSearchValidateQueryTool(BaseTool):
-    """Run a PPL query against OpenSearch."""
-
-    def __init__(self, opensearch_extractor: OpenSearchExtractor) -> None:
-        self._extractor = opensearch_extractor
-
-    @property
-    def name(self) -> str:
-        return "opensearch_validate_query"
-
-    @property
-    def description(self) -> str:
-        return "Fetch logs from OpenSearch using a query."
+class OpenSearchValidateQueryTool(OpenSearchTool):
+    name: ClassVar[str] = "opensearch_validate_query"
+    description: ClassVar[str] = "Fetch logs from OpenSearch using a query."
 
     def execute(self, **kwargs: Any) -> List[LogEntry]:
         query = kwargs.get("query")
@@ -283,8 +273,7 @@ class OpenSearchValidateQueryTool(BaseTool):
         sample = result[0].model_dump() if result else None
         logger.info(
             "opensearch_validate_query execute returned count=%d sample=%s",
-            len(result),
-            sample,
+            len(result), sample,
         )
         return result
 
@@ -298,43 +287,29 @@ class OpenSearchValidateQueryTool(BaseTool):
             sample = result[0].model_dump() if result else None
             logger.info(
                 "opensearch_validate_query tool returned count=%d sample=%s",
-                len(result),
-                sample,
+                len(result), sample,
             )
             return result
 
         return opensearch_validate_query
 
 
-class OpenSearchFetchLogsTool(BaseTool):
-    """Fetch logs from OpenSearch."""
-
-    def __init__(self, opensearch_extractor: OpenSearchExtractor) -> None:
-        self._extractor = opensearch_extractor
-
-    @property
-    def name(self) -> str:
-        return "opensearch_fetch_logs"
-
-    @property
-    def description(self) -> str:
-        return "Fetch logs from OpenSearch using a query and optional time range."
+class OpenSearchFetchLogsTool(OpenSearchTool):
+    name: ClassVar[str] = "opensearch_fetch_logs"
+    description: ClassVar[str] = "Fetch logs from OpenSearch using a query and optional time range."
 
     def execute(self, **kwargs: Any) -> List[LogEntry]:
         query = kwargs.get("query")
         if query is None:
             raise TypeError("opensearch_fetch_logs requires query")
-        start = (
-            _parse_datetime(kwargs["start"]) if kwargs.get("start") is not None else None
-        )
+        start = _parse_datetime(kwargs["start"]) if kwargs.get("start") is not None else None
         end = _parse_datetime(kwargs["end"]) if kwargs.get("end") is not None else None
         limit = kwargs.get("limit", 100)
         result = self._extractor.fetch_logs(query, start=start, end=end, limit=limit)
         sample = result[0].model_dump() if result else None
         logger.info(
             "opensearch_fetch_logs execute returned count=%d sample=%s",
-            len(result),
-            sample,
+            len(result), sample,
         )
         return result
 
@@ -353,30 +328,19 @@ class OpenSearchFetchLogsTool(BaseTool):
             sample = result[0].model_dump() if result else None
             logger.info(
                 "opensearch_fetch_logs tool returned count=%d sample=%s",
-                len(result),
-                sample,
+                len(result), sample,
             )
             return result
 
         return opensearch_fetch_logs
 
 
-class OpenSearchCleanQueryStringTool(BaseTool):
-    """Normalize a query string for OpenSearch."""
-
-    def __init__(self, opensearch_extractor: OpenSearchExtractor) -> None:
-        self._extractor = opensearch_extractor
-
-    @property
-    def name(self) -> str:
-        return "opensearch_clean_query_string"
-
-    @property
-    def description(self) -> str:
-        return (
-            "Clean the query string by removing markdown code blocks, newlines, "
-            "and extra whitespace."
-        )
+class OpenSearchCleanQueryStringTool(OpenSearchTool):
+    name: ClassVar[str] = "opensearch_clean_query_string"
+    description: ClassVar[str] = (
+        "Clean the query string by removing markdown code blocks, newlines, "
+        "and extra whitespace."
+    )
 
     def execute(self, **kwargs: Any) -> str:
         query = kwargs.get("query")
@@ -395,19 +359,9 @@ class OpenSearchCleanQueryStringTool(BaseTool):
         return opensearch_clean_query_string
 
 
-class OpenSearchGetIndexNameTool(BaseTool):
-    """Return the configured OpenSearch index name."""
-
-    def __init__(self, opensearch_extractor: OpenSearchExtractor) -> None:
-        self._extractor = opensearch_extractor
-
-    @property
-    def name(self) -> str:
-        return "opensearch_get_index_name"
-
-    @property
-    def description(self) -> str:
-        return "Get available index names from OpenSearch."
+class OpenSearchGetIndexNameTool(OpenSearchTool):
+    name: ClassVar[str] = "opensearch_get_index_name"
+    description: ClassVar[str] = "Get available index names from OpenSearch."
 
     def execute(self, **kwargs: Any) -> str:
         if kwargs:
@@ -425,22 +379,13 @@ class OpenSearchGetIndexNameTool(BaseTool):
         return opensearch_get_index_name
 
 
-# --- ClickHouse ---
+# ---------------------------------------------------------------------------
+# ClickHouse tools
+# ---------------------------------------------------------------------------
 
-
-class ClickHouseGetTableNameTool(BaseTool):
-    """Return the fully-qualified ClickHouse table name."""
-
-    def __init__(self, clickhouse_extractor: ClickHouseExtractor) -> None:
-        self._extractor = clickhouse_extractor
-
-    @property
-    def name(self) -> str:
-        return "clickhouse_get_table_name"
-
-    @property
-    def description(self) -> str:
-        return "Get the fully-qualified ClickHouse table name for querying logs."
+class ClickHouseGetTableNameTool(ClickHouseTool):
+    name: ClassVar[str] = "clickhouse_get_table_name"
+    description: ClassVar[str] = "Get the fully-qualified ClickHouse table name for querying logs."
 
     def execute(self, **kwargs: Any) -> str:
         if kwargs:
@@ -458,19 +403,9 @@ class ClickHouseGetTableNameTool(BaseTool):
         return clickhouse_get_table_name
 
 
-class ClickHouseGetColumnNamesTool(BaseTool):
-    """List columns on the ClickHouse log table."""
-
-    def __init__(self, clickhouse_extractor: ClickHouseExtractor) -> None:
-        self._extractor = clickhouse_extractor
-
-    @property
-    def name(self) -> str:
-        return "clickhouse_get_column_names"
-
-    @property
-    def description(self) -> str:
-        return "Get available column names from the ClickHouse log table."
+class ClickHouseGetColumnNamesTool(ClickHouseTool):
+    name: ClassVar[str] = "clickhouse_get_column_names"
+    description: ClassVar[str] = "Get available column names from the ClickHouse log table."
 
     def execute(self, **kwargs: Any) -> List[str]:
         if kwargs:
@@ -488,19 +423,9 @@ class ClickHouseGetColumnNamesTool(BaseTool):
         return clickhouse_get_column_names
 
 
-class ClickHouseValidateQueryTool(BaseTool):
-    """Execute SQL against ClickHouse."""
-
-    def __init__(self, clickhouse_extractor: ClickHouseExtractor) -> None:
-        self._extractor = clickhouse_extractor
-
-    @property
-    def name(self) -> str:
-        return "clickhouse_validate_query"
-
-    @property
-    def description(self) -> str:
-        return "Execute a SQL SELECT query against ClickHouse and return log entries."
+class ClickHouseValidateQueryTool(ClickHouseTool):
+    name: ClassVar[str] = "clickhouse_validate_query"
+    description: ClassVar[str] = "Execute a SQL SELECT query against ClickHouse and return log entries."
 
     def execute(self, **kwargs: Any) -> List[LogEntry]:
         query = kwargs.get("query")
@@ -525,32 +450,18 @@ class ClickHouseValidateQueryTool(BaseTool):
         return clickhouse_validate_query
 
 
-class ClickHouseFetchLogsTool(BaseTool):
-    """Fetch logs from ClickHouse."""
-
-    def __init__(self, clickhouse_extractor: ClickHouseExtractor) -> None:
-        self._extractor = clickhouse_extractor
-
-    @property
-    def name(self) -> str:
-        return "clickhouse_fetch_logs"
-
-    @property
-    def description(self) -> str:
-        return "Fetch logs from ClickHouse using a query and optional time range."
+class ClickHouseFetchLogsTool(ClickHouseTool):
+    name: ClassVar[str] = "clickhouse_fetch_logs"
+    description: ClassVar[str] = "Fetch logs from ClickHouse using a query and optional time range."
 
     def execute(self, **kwargs: Any) -> List[LogEntry]:
         query = kwargs.get("query")
         if query is None:
             raise TypeError("clickhouse_fetch_logs requires query")
-        start = (
-            _parse_datetime(kwargs["start"]) if kwargs.get("start") is not None else None
-        )
+        start = _parse_datetime(kwargs["start"]) if kwargs.get("start") is not None else None
         end = _parse_datetime(kwargs["end"]) if kwargs.get("end") is not None else None
         limit = kwargs.get("limit", 100)
-        logger.info(
-            "Fetching ClickHouse logs: query=%s start=%s end=%s", query, start, end
-        )
+        logger.info("Fetching ClickHouse logs: query=%s start=%s end=%s", query, start, end)
         result = self._extractor.fetch_logs(query, start=start, end=end, limit=limit)
         logger.info("Result: %d logs fetched", len(result))
         return result
@@ -568,9 +479,7 @@ class ClickHouseFetchLogsTool(BaseTool):
             """Fetch logs from ClickHouse using a query and optional time range. If start/end are omitted, the last 100 logs are returned."""
             logger.info(
                 "Fetching ClickHouse logs: query=%s start=%s end=%s",
-                query,
-                start,
-                end,
+                query, start, end,
             )
             result = ext.fetch_logs(query, start=start, end=end, limit=limit)
             logger.info("Result: %d logs fetched", len(result))
@@ -579,22 +488,12 @@ class ClickHouseFetchLogsTool(BaseTool):
         return clickhouse_fetch_logs
 
 
-class ClickHouseCleanQueryStringTool(BaseTool):
-    """Normalize a SQL query string for ClickHouse."""
-
-    def __init__(self, clickhouse_extractor: ClickHouseExtractor) -> None:
-        self._extractor = clickhouse_extractor
-
-    @property
-    def name(self) -> str:
-        return "clickhouse_clean_query_string"
-
-    @property
-    def description(self) -> str:
-        return (
-            "Clean the query string by removing markdown code blocks, newlines, "
-            "and extra whitespace."
-        )
+class ClickHouseCleanQueryStringTool(ClickHouseTool):
+    name: ClassVar[str] = "clickhouse_clean_query_string"
+    description: ClassVar[str] = (
+        "Clean the query string by removing markdown code blocks, newlines, "
+        "and extra whitespace."
+    )
 
     def execute(self, **kwargs: Any) -> str:
         query = kwargs.get("query")

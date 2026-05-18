@@ -8,6 +8,7 @@ from typing import Any
 import yaml
 
 from src.core.skills import SkillDef
+from src.core.skills.composition_validation import assert_composed_invokes_resolve_to_simple_skills
 
 
 class SkillRegistry:
@@ -83,6 +84,10 @@ class SkillRegistry:
                 payload["id"] = path.stem
             skill = self._validate_skill(payload, str(path))
             builtins[skill.id] = skill
+        for sid, skill in builtins.items():
+            assert_composed_invokes_resolve_to_simple_skills(
+                skill, builtins, context=f"built-in skill {sid!r}"
+            )
         return builtins
 
     def _load_tenant_skills(self, tenant_id: str) -> dict[str, SkillDef]:
@@ -97,6 +102,11 @@ class SkillRegistry:
                 payload["id"] = path.stem
             skill = self._validate_skill(payload, str(path))
             tenant_skills[skill.id] = skill
+        merged = {**self._builtins, **tenant_skills}
+        for sid, skill in tenant_skills.items():
+            assert_composed_invokes_resolve_to_simple_skills(
+                skill, merged, context=f"tenant {tenant_id!r} skill {sid!r}"
+            )
         return tenant_skills
 
     def _load_yaml_payload(self, content: str, source: str) -> dict[str, Any]:

@@ -1,0 +1,1119 @@
+openapi: 3.0.3
+info:
+  title: Weave Orchestrator API
+  version: 0.1.0
+servers:
+  - url: http://localhost:9999
+    description: Local development
+
+security:
+  - ApiKeyAuth: []
+
+tags: 
+  - name: dictionary
+  - name: tenant
+  - name: integration
+  - name: skill
+  - name: task
+  
+paths:
+  /health:
+    get:
+      summary: Health check
+      operationId: getHealth
+      security: []
+      responses:
+        "200":
+          description: Service health
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+  /tenants/{slug}/skills:
+    get:
+      tags:
+        - skill
+      summary: List skills
+      operationId: listSkills
+      parameters:
+        - $ref: "#/components/parameters/TenantId"
+      responses:
+        "200":
+          description: Skills list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SkillResource"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    post:
+      tags:
+        - skill
+      summary: Save a skill
+      operationId: saveSkill
+      parameters:
+        - $ref: "#/components/parameters/TenantId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SkillResource"
+      responses:
+        "200":
+          description: Saved skill
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SkillResource"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /tenants/{slug}/skills/{skill_id}:
+    get:
+      tags: 
+        - skill
+      summary: Get a skill
+      operationId: getSkill
+      parameters:
+        - $ref: "#/components/parameters/SkillId"
+        - $ref: "#/components/parameters/TenantId"
+      responses:
+        "200":
+          description: Skill
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SkillResource"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    delete:
+      tags: 
+        - skill
+      summary: Delete a skill
+      operationId: deleteSkill
+      parameters:
+        - $ref: "#/components/parameters/SkillId"
+        - $ref: "#/components/parameters/TenantId"
+      responses:
+        "204":
+          description: Deleted
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  
+  /tenants:
+    post:
+      tags: 
+        - tenant
+      summary: Create a tenant
+      operationId: createTenant
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateTenantRequest"
+      responses:
+        "201":
+          description: Created tenant
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TenantV1"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "409":
+          description: Tenant with this slug already exists
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /tenants/{slug}:
+    get:
+      tags: 
+        - tenant
+      summary: Get tenant
+      operationId: getTenant
+      parameters:
+        - $ref: "#/components/parameters/TenantSlug"
+      responses:
+        "200":
+          description: Tenant
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TenantV1"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /tenants/{slug}/integrations:
+    get:
+      tags:
+        - integration
+      summary: List tenant integrations
+      operationId: listIntegrations
+      parameters:
+        - $ref: "#/components/parameters/TenantSlug"
+      responses:
+        "200":
+          description: Integrations list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/TenantIntegrationV1"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    post:
+      tags: 
+        - integration
+      summary: Add tenant integration
+      operationId: createIntegration
+      parameters:
+        - $ref: "#/components/parameters/TenantSlug"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TenantIntegrationV1"
+      responses:
+        "201":
+          description: Created integration
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TenantIntegrationV1"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: Integration with this type and flavour already exists for the tenant
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /tenants/{slug}/integrations/{integration_id}:
+    get:
+      tags:
+        - integration
+      summary: Get tenant integration
+      operationId: getIntegration
+      parameters:
+        - $ref: "#/components/parameters/TenantSlug"
+        - $ref: "#/components/parameters/IntegrationId"
+      responses:
+        "200":
+          description: Integration
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TenantIntegrationV1"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    put:
+      tags:
+        - integration
+      summary: Update tenant integration
+      operationId: updateIntegration
+      parameters:
+        - $ref: "#/components/parameters/TenantSlug"
+        - $ref: "#/components/parameters/IntegrationId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TenantIntegrationV1"
+      responses:
+        "200":
+          description: Updated integration
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TenantIntegrationV1"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /tools:
+    get:
+      tags:
+        - dictionary
+      operationId: getTools
+      responses:
+        "200":
+          description: Service health
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ToolsPageResponse"
+  /tasks/run:
+    post:
+      tags: 
+        - task
+      summary: Run a task
+      operationId: runTask
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RunTaskRequest"
+      responses:
+        "200":
+          description: Task execution response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RunTaskResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"         
+
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: API Key
+      description: >
+        Tenant API secret. Send as Authorization Bearer token, or pass the same value in the X-API-Key header.
+  parameters:
+    TenantId:
+      in: path
+      name: slug
+      required: true
+      schema:
+        type: string
+        default: default
+    SkillId:
+      in: path
+      name: skill_id
+      required: true
+      schema:
+        type: string
+    TenantSlug:
+      in: path
+      name: slug
+      required: true
+      schema:
+        type: string
+    ToolName:
+      in: path
+      name: tool_name
+      required: true
+      schema:
+        type: string
+    IntegrationId:
+      in: path
+      name: integration_id
+      required: true
+      schema:
+        type: string
+  responses:
+    BadRequest:
+      description: Bad request
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    NotFound:
+      description: Not found
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    UnprocessableEntity:
+      description: Unprocessable entity
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    InternalError:
+      description: Internal server error
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    Unauthorized:
+      description: Missing or invalid API key
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    Forbidden:
+      description: API key does not match tenant in path or body
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    TooManyRequests:
+      description: Plan quota exceeded
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+  schemas:
+    Page:
+      type: object
+      additionalProperties: false
+      required: [page, size, total, total_pages]
+      properties:
+        total:
+          type: integer
+          description: Total number of contents
+          example: 100
+        page:
+          type: integer
+          description: Page number
+          example: 0
+        size:
+          type: integer
+          description: Page size
+          example: 10
+        total_pages:
+          type: integer
+          description: Total number of pages
+          example: 10
+        has_more:
+          type: boolean
+          description: Whether there are more pages
+          example: true
+        is_first:
+          type: boolean
+          description: Whether this is the first page
+          example: true
+        is_last:
+          type: boolean
+          description: Whether this is the last page
+          example: true
+
+    ToolsPageResponse:
+      allOf:
+        - $ref: "#/components/schemas/Page"
+        - type: object
+          required:
+            - items
+          properties:
+            items:
+              type: array
+              items:
+                $ref: "#/components/schemas/ToolV1"
+    ToolV1:
+      type: object
+      required:
+        - name
+        - description
+      properties: 
+        name: 
+          type: string
+        description:
+          type: string
+      example:
+        name: "http_tool"
+        description: "HTTP tool to make HTTP requests"
+    HealthResponse:
+      type: object
+      additionalProperties: false
+      required: [status, service]
+      properties:
+        status:
+          type: string
+        service:
+          type: string
+      example:
+        status: ok
+        service: weave-orchestrator
+    ErrorResponse:
+      type: object
+      additionalProperties: false
+      required: [detail]
+      properties:
+        detail:
+          type: string
+      example:
+        detail: resource not found
+    InvocationCostDto:
+      type: object
+      additionalProperties: false
+      required: [label]
+      properties:
+        label:
+          type: string
+        total_tokens:
+          type: integer
+          default: 0
+        children:
+          type: array
+          items:
+            $ref: "#/components/schemas/InvocationCostDto"
+      example:
+        label: root
+        total_tokens: 1200
+        children:
+          - label: planner
+            total_tokens: 400
+            children: []
+          - label: executor
+            total_tokens: 800
+            children: []
+    SkillStepResource:
+      type: object
+      additionalProperties: false
+      required: [id, type, objective]
+      properties:
+        id:
+          type: string
+        type:
+          type: string
+          enum: [invoke_skill, invoke_tool, synthesize]
+        skill_id:
+          type: string
+          nullable: true
+        tool_id:
+          type: string
+          nullable: true
+        objective:
+          type: string
+        params:
+          type: object
+          additionalProperties: true
+          nullable: true
+      example:
+        id: step_01
+        type: invoke_tool
+        tool_id: get_logs
+        objective: Fetch recent error logs
+        params:
+          service: payments
+          lookback_minutes: 30
+    SkillResource:
+      type: object
+      additionalProperties: false
+      required: [id, name, description, instructions]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        instructions:
+          type: string
+          default: ""
+        kind:
+          type: string
+          enum: [simple, composed]
+          default: simple
+        capabilities:
+          type: array
+          default: []
+          items:
+            type: string
+        mcp_servers:
+          type: array
+          default: []
+          items:
+            type: string
+        steps:
+          type: array
+          default: []
+          items:
+            $ref: "#/components/schemas/SkillStepResource"
+        model:
+          type: string
+          default: gpt-5.1
+
+        input_schema:
+          type: object
+          additionalProperties: true
+          nullable: true
+        output_schema:
+          type: object
+          additionalProperties: true
+          nullable: true
+      example:
+        id: investigate_latency
+        name: Investigate Latency
+        description: Diagnose p95 latency regressions
+        instructions: Check logs and synthesize root cause.
+        kind: composed
+        capabilities:
+          - log_analysis
+          - dependency_mapping
+        mcp_servers:
+          - datadog
+        steps:
+          - id: step_01
+            type: invoke_tool
+            tool_id: query_logs
+            objective: Pull high-latency request logs
+            params:
+              service: checkout
+              threshold_ms: 500
+          - id: step_02
+            type: synthesize
+            objective: Summarize likely bottlenecks
+        model: gpt-5.1
+        input_schema:
+          type: object
+          properties:
+            service:
+              type: string
+        output_schema:
+          type: object
+          properties:
+            root_cause:
+              type: string
+   
+    RunTaskRequest:
+      type: object
+      additionalProperties: false
+      required: [slug, objective]
+      properties:
+        objective:
+          type: string
+        slug:
+          type: string
+          default: default
+        skill_id:
+          type: string
+          description: If skill id not is not specified Orchestrator prepares a plan and then executes it.
+          nullable: true
+        input:
+          type: object
+          additionalProperties: true
+          nullable: true
+          description: >
+            Optional key-value payload. Surfaced to the planner as task.input when planning without skill_id.
+            When skill_id is set, merged with orchestrator fields (objective, task, prior_steps) and validated
+            against that skill's input_schema when present.
+      example:
+        objective: Investigate checkout errors after deployment
+        slug: default
+        skill_id: investigate_latency
+        input:
+          alert_id: "chk-42"
+    
+    CreateTenantRequest:
+      $ref: '#/components/schemas/TenantV1'
+    
+    TenantV1:
+      type: object
+      additionalProperties: false
+      required: [slug, display_name, plan_slug]
+      properties:
+        slug:
+          type: string
+        display_name:
+          type: string
+        plan_slug:
+          type: string
+          description: Subscription plan key; references plans.slug (starter, essential, pro).
+          enum: [starter, essential, pro]
+      example:
+        slug: xcorp
+        display_name: "X corp"
+        plan_slug: starter
+          
+    StepResultDto:
+      type: object
+      additionalProperties: false
+      required: [step_id, objective, success]
+      properties:
+        step_id:
+          type: string
+        objective:
+          type: string
+        success:
+          type: boolean
+        error:
+          type: string
+          nullable: true
+      example:
+        step_id: step_01
+        objective: Pull high-latency request logs
+        success: true
+        error: null
+    RunTaskResponse:
+      type: object
+      additionalProperties: false
+      required: [task_id, success, steps_completed]
+      properties:
+        task_id:
+          type: string
+          format: uuid
+          description: Server-generated identifier for this task run; matches the persisted task_runs row.
+        success:
+          type: boolean
+        output:
+          type: object
+          additionalProperties: true
+          nullable: true
+          description: >
+            When the request includes skill_id, the structured result from the preferred skill
+            invocation (validated against that skill's output_schema when present). Omitted when
+            skill_id is not set or no matching successful skill step was found.
+        steps_completed:
+          type: array
+          items:
+            $ref: "#/components/schemas/StepResultDto"
+        reasoning:
+          type: string
+          nullable: true
+        error:
+          type: string
+          nullable: true
+        cost:
+          $ref: "#/components/schemas/InvocationCostDto"
+          nullable: true
+      example:
+        task_id: "550e8400-e29b-41d4-a716-446655440000"
+        success: true
+        output:
+          root_cause: downstream payment timeouts
+        steps_completed:
+          - step_id: step_01
+            objective: Pull high-latency request logs
+            success: true
+        reasoning: Timeouts started immediately after dependency rollout.
+        error: null
+        cost:
+          label: run_task
+          total_tokens: 1200
+          children: []
+
+    TenantIntegrationV1:
+        type: object
+        description: Tenant integration is a configuration for a tenant integration.
+        required:
+          - id
+          - active
+          - type
+        properties:
+          id:
+            type: string
+            minLength: 1
+            readOnly: true
+            description: ID of the tenant integration.
+            example: "123e4567-e89b-12d3-a456-426614174000"
+          active:
+            type: boolean
+            description: Whether the tenant integration is active.
+            example: true
+          created_at:
+            type: integer
+            format: int64
+            readOnly: true
+            description: Creation timestamp of the tenant integration.
+            example: 1709452800
+          updated_at:
+            type: integer
+            format: int64
+            readOnly: true
+            description: Last updated timestamp of the tenant integration.
+            example: 1709452800
+          type:
+            $ref: '#/components/schemas/TenantIntegrationTypeV1'
+            
+        discriminator:
+          propertyName: type
+          mapping:
+            LOG_SOURCE:   '#/components/schemas/LogSourceV1'
+            REPOSITORY:   '#/components/schemas/CodeRepositoryV1'
+            TRACE_SOURCE: '#/components/schemas/TraceSourceV1'
+            MCP:          '#/components/schemas/McpServerV1'
+        oneOf:
+          - $ref: '#/components/schemas/LogSourceV1'
+          - $ref: '#/components/schemas/CodeRepositoryV1'
+          - $ref: '#/components/schemas/TraceSourceV1'
+          - $ref: '#/components/schemas/McpServerV1'
+    TenantIntegrationTypeV1:
+      type: string
+      enum:
+        - LOG_SOURCE
+        - REPOSITORY
+        - TRACE_SOURCE
+        - MCP
+      description: Type of the tenant integration.
+      example: LOG_SOURCE
+
+    McpServerV1:
+      type: object
+      description: MCP server integration (stdio, SSE, or Streamable HTTP).
+      required:
+        - type
+        - flavour
+        - transport
+      properties:
+        type:
+          type: string
+          enum: [MCP]
+        flavour:
+          type: string
+          description: >
+            Stable name used to reference this server from skill mcp_servers lists.
+            Examples: GITHUB, JIRA, CUSTOM_MCP.
+          example: GITHUB
+        transport:
+          type: string
+          enum: [stdio, sse, streamable_http]
+        url:
+          type: string
+          description: Required for sse and streamable_http transports.
+          example: "https://api.githubcopilot.com/mcp/"
+        command:
+          type: string
+          description: Required for stdio transport.
+        args:
+          type: array
+          items:
+            type: string
+        env:
+          type: object
+          additionalProperties:
+            type: string
+        headers:
+          type: object
+          additionalProperties:
+            type: string
+        timeout:
+          type: number
+        sse_read_timeout:
+          type: number
+        cache_tools_list:
+          type: boolean
+          default: false
+      example:
+        type: MCP
+        flavour: GITHUB
+        transport: streamable_http
+        url: "https://api.githubcopilot.com/mcp/"
+        headers:
+          Authorization: "Bearer ghp_xxxx"
+        timeout: 15
+        cache_tools_list: true
+
+    CodeRepositoryV1:
+      type: object
+      description: >
+        Code repository integration (GitHub PAT only). Stores the token; repo URL is set per component.
+        The PAT must have read access to the repositories you want to connect.
+      required:
+        - type
+        - flavour
+        - pat
+      properties:
+        type:
+          type: string
+          enum: [REPOSITORY]
+        flavour:
+          type: string
+          enum: [GIT]
+        pat:
+          type: string
+          description: >
+            GitHub Personal Access Token used to access repository contents.
+            NOTE: For classic PATs, grant the `repo` scope (read access).
+            For fine-grained PATs, grant `Contents: Read-only` permission.
+          minLength: 1
+      example:
+        type: REPOSITORY
+        flavour: GIT
+        pat: ghp_xxxx
+
+    TraceSourceV1:
+      type: object
+      description: Distributed tracing backend integration.
+      required:
+        - flavour
+      properties:
+        flavour:
+          type: string
+      discriminator:
+        propertyName: flavour
+        mapping:
+          JAEGER: '#/components/schemas/JaegerV1'
+          TEMPO:  '#/components/schemas/TempoV1'
+      oneOf:
+        - $ref: '#/components/schemas/JaegerV1'
+        - $ref: '#/components/schemas/TempoV1'
+      example:
+        flavour: JAEGER
+        url: http://localhost:16686
+
+    JaegerV1:
+      type: object
+      description: Jaeger distributed tracing backend.
+      required:
+        - type
+        - flavour
+        - url
+      properties:
+        type:
+          type: string
+          enum: [TRACE_SOURCE]
+        flavour:
+          type: string
+          enum: [JAEGER]
+        url:
+          type: string
+          description: Jaeger query API base URL.
+          example: "http://localhost:16686"
+        auth_mechanism:
+          $ref: '#/components/schemas/LogSourceAuthMechanismV1'
+
+    TempoV1:
+      type: object
+      description: Grafana Tempo distributed tracing backend.
+      required:
+        - type
+        - flavour
+        - url
+      properties:
+        type:
+          type: string
+          enum: [TRACE_SOURCE]
+        flavour:
+          type: string
+          enum: [TEMPO]
+        url:
+          type: string
+          description: Tempo query API base URL.
+          example: "http://localhost:3200"
+        auth_mechanism:
+          $ref: '#/components/schemas/LogSourceAuthMechanismV1'
+
+    LogSourceV1:
+      type: object
+      description: Log aggregator is a service that aggregates logs.
+      required:
+        - flavour
+      properties:
+        flavour:
+          type: string
+      discriminator:
+        propertyName: flavour
+        mapping:
+          LOKI: '#/components/schemas/LokiV1'
+          OPENSEARCH: '#/components/schemas/OpenSearchV1'
+          CLICKHOUSE: '#/components/schemas/ClickHouseV1'
+      oneOf:
+        - $ref: '#/components/schemas/LokiV1'
+        - $ref: '#/components/schemas/OpenSearchV1'
+        - $ref: '#/components/schemas/ClickHouseV1'
+      example:
+        flavour: LOKI
+        url: http://localhost:3100
+        auth_mechanism:
+          bearer:
+            token: token_abc123
+
+    LogSourceAuthBasicV1:
+      type: object
+      description: Basic authentication for log sources (no type discriminator; same as RCA engine).
+      required:
+        - username
+        - password
+      properties:
+        username:
+          type: string
+          description: Username for Basic authentication
+        password:
+          type: string
+          description: Password for Basic authentication
+      example:
+        username: loki_user
+        password: loki_password
+    LogSourceAuthBearerV1:
+      type: object
+      description: Bearer token authentication for log sources.
+      required:
+        - token
+      properties:
+        token:
+          type: string
+          description: Bearer token
+      example:
+        token: token_abc123
+    LogSourceOAuthConfigV1:
+      type: object
+      description: OAuth 2.0 Client Credentials configuration for log sources (same as RCA engine).
+      properties:
+        client_id:
+          type: string
+          description: OAuth client identifier
+        client_secret:
+          type: string
+          description: OAuth client secret
+        token_url:
+          type: string
+          description: OAuth token endpoint URL
+        scope:
+          type: string
+          description: Optional OAuth scopes (comma-separated)
+        token_expiry_buffer:
+          type: integer
+          default: 60
+          description: Seconds before expiry to refresh token
+      example:
+        client_id: log-client
+        client_secret: super-secret
+        token_url: https://auth.example.com/oauth/token
+        scope: logs.read
+        token_expiry_buffer: 60
+    LogSourceAuthOAuthV1:
+      type: object
+      description: OAuth authentication wrapper for log sources.
+      required:
+        - oauth_config
+      properties:
+        oauth_config:
+          $ref: '#/components/schemas/LogSourceOAuthConfigV1'
+      example:
+        oauth_config:
+          client_id: log-client
+          client_secret: super-secret
+          token_url: https://auth.example.com/oauth/token
+          scope: logs.read
+          token_expiry_buffer: 60
+    LogSourceAuthAPIKeyV1:
+      type: object
+      description: API key authentication for log sources.
+      required:
+        - api_key
+        - api_key_header_name
+      properties:
+        api_key:
+          type: string
+          description: API key value
+        api_key_header_name:
+          type: string
+          description: Header name for API key (e.g. X-API-Key)
+      example:
+        api_key: sk_live_123456
+        api_key_header_name: X-API-Key
+    LogSourceAuthMechanismV1:
+      type: object
+      description: Authentication for log/trace sources (at most one mechanism; same structure as RCA engine AuthMechanism).
+      properties:
+        basic:
+          $ref: '#/components/schemas/LogSourceAuthBasicV1'
+        bearer:
+          $ref: '#/components/schemas/LogSourceAuthBearerV1'
+        oauth:
+          $ref: '#/components/schemas/LogSourceAuthOAuthV1'
+        api_key:
+          $ref: '#/components/schemas/LogSourceAuthAPIKeyV1'
+      example:
+        bearer:
+          token: token_abc123
+    LokiV1:
+      type: object
+      description: Loki is a log aggregation system.
+      required:
+        - type
+        - flavour
+        - url
+      properties:
+        type:
+          type: string
+          enum: [LOG_SOURCE]
+        flavour:
+          type: string
+          enum: [LOKI]
+        url:
+          type: string
+          description: URL of the Loki cluster.
+          example: "http://localhost:3100"
+        auth_mechanism:
+          $ref: '#/components/schemas/LogSourceAuthMechanismV1'
+    OpenSearchV1:
+      type: object
+      description: OpenSearch is a search and analytics engine
+      required:
+        - type
+        - flavour
+        - url
+      properties:
+        type:
+          type: string
+          enum: [LOG_SOURCE]
+        flavour:
+          type: string
+          enum: [OPENSEARCH]
+        url:
+          type: string
+          description: URL of the OpenSearch cluster (e.g. http://localhost:9200).
+          example: "http://localhost:9200"
+        index_pattern:
+          type: string
+          description: Index or index pattern (e.g. for OpenSearch).
+          example: "logstash-*"
+        auth_mechanism:
+          $ref: '#/components/schemas/LogSourceAuthMechanismV1'
+    ClickHouseV1:
+      type: object
+      description: ClickHouse log source for extracting logs via the ClickHouse HTTP interface.
+      required:
+        - type
+        - flavour
+        - url
+        - database
+        - table
+      properties:
+        type:
+          type: string
+          enum: [LOG_SOURCE]
+        flavour:
+          type: string
+          enum: [CLICKHOUSE]
+        url:
+          type: string
+          description: "ClickHouse HTTP base URL (e.g. http://localhost:8123)."
+          example: "http://localhost:8123"
+        database:
+          type: string
+          description: "ClickHouse database name (required)."
+          example: "default"
+        table:
+          type: string
+          description: "ClickHouse log table name (required)."
+          example: "otel_logs"
+        auth_mechanism:
+          $ref: '#/components/schemas/LogSourceAuthMechanismV1'

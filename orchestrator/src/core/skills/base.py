@@ -30,6 +30,9 @@ class StepResult(BaseModel):
     success: bool
     output: Any = None
     error: str | None = None
+    """When this step invoked a sub-skill or tool, the target id (for audit / UI)."""
+    invoked_skill_id: str | None = None
+    invoked_tool_id: str | None = None
 
 
 class SkillRunContext(BaseModel):
@@ -50,7 +53,14 @@ class SkillDef(BaseModel):
     steps: list[SkillStep] = Field(default_factory=list)
     model: str = "gpt-4.1"
     input_schema: dict[str, Any] | None = None
-    output_schema: dict[str, Any] | None = None
+    output_schema: dict[str, Any] | None = Field(
+        default=None,
+        description=(
+            "For simple skills: JSON Schema for structured LLM output. "
+            "For composed skills: unused at runtime (effective shape is the last step's output); "
+            "omit or leave null."
+        ),
+    )
 
     @model_validator(mode="after")
     def _check_kind(self) -> Self:
@@ -73,3 +83,5 @@ class SkillResult(BaseModel):
     output: Any = None
     error: str | None = None
     cost: InvocationCost | None = None
+    """Inner steps for composed skills; empty for simple skills."""
+    steps_completed: list[StepResult] = Field(default_factory=list)

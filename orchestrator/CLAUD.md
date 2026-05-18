@@ -33,6 +33,34 @@ This document sets **foundational** conventions for this Python service. Extend 
 - **`create_app()`** in `main.py` is the single factory for the FastAPI app; tests should prefer `create_app()` over importing the global `app` when isolation matters.
 - Routers return clear Pydantic models or typed dicts; avoid leaking infrastructure exceptions—map to HTTP errors at the API boundary when you add error handling.
 
+## Handler conventions
+
+**Execution order inside a route handler:**
+
+1. **Request validation first** — call `body.validate()` before any I/O. A bad request should never cost a DB round-trip.
+2. **Existence checks second** — tenant guard, resource lookup. These are the cheapest necessary DB calls before mutating state.
+3. **Business rule checks third** — immutability guards, conflict detection that requires the fetched row (e.g. flavour cannot change on update).
+4. **Mutation last** — write to the DB only after all checks pass.
+
+```python
+# correct order
+body.validate()                          # 1. pure — no I/O
+await _require_tenant(storage, slug)     # 2. cheapest existence check
+existing = await repo.get(id)            # 3. fetch only when needed for a check
+if body.immutable_field != existing.x:   # 3. business rule against fetched row
+    raise HTTPException(400, ...)
+await repo.update(id, payload)           # 4. mutate
+```
+
+**Error mapping:**
+
+| Exception | HTTP status |
+|---|---|
+| `ValueError` from `body.validate()` | 400 Bad Request |
+| Resource not found | 404 Not Found |
+| `sqlalchemy.exc.IntegrityError` | 409 Conflict |
+| Unexpected exception | 500 Internal Server Error |
+
 ## Testing
 
 - **`tests/`** mirrors features; use **`fastapi.testclient.TestClient`** (or `httpx` against ASGI) for API tests.

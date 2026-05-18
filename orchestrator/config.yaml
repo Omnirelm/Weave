@@ -1,85 +1,59 @@
-# Orchestrator integration defaults.
-# Copy and edit; paths are resolved relative to the orchestrator project root unless absolute.
+# Orchestrator runtime configuration.
+# Tool and MCP server configs are no longer stored here — they live in the
+# tenant_integrations table and are resolved per-request via ToolProvider and McpProvider.
 #
-# Logging: enable one or more sources. Each source registers tools namespaced by flavour
-# (e.g. loki_fetch_logs, opensearch_fetch_logs, clickhouse_fetch_logs).
-# Multiple sources of the same flavour register the same tool ids — the last one wins.
-#
-# Dynaconf is the runtime source of truth for this file.
 # Use ORCHESTRATOR_ env vars to override values (dunder for nesting).
-# Example: ORCHESTRATOR_LOG_LEVEL=DEBUG
-# Example: ORCHESTRATOR_MCP__GITHUB__HEADERS__Authorization="Bearer ghp_xxx"
-#
-# MCP: enable stdio, SSE, or Streamable HTTP servers.
+# Examples:
+#   ORCHESTRATOR_LOG_LEVEL=DEBUG
+#   ORCHESTRATOR_DATABASE__URL=postgresql+asyncpg://user:pass@host/db
 
-tools:
-  logging:
-    # Grafana Loki
-    loki-primary:
-      tags: ["logging", default]
-      enabled: true
-      flavour: LOKI # LOKI | OPENSEARCH | CLICKHOUSE
-      url: http://localhost:3100
-      tenantId: "1" # Loki multi-tenant org id (X-Scope-OrgID)
-      headers: {} # merged with auth headers; auth wins on key collision
-      auth: null
-      # auth:
-      #   apiKey:
-      #     apiKey: ""
-      #     apiKeyHeaderName: X-API-Key
-      #   bearer:
-      #     token: ""
-      #   basic:
-      #     username: ""
-      #     password: ""
-      #   oauth:
-      #     oauthConfig:
-      #       clientId: ""
-      #       clientSecret: ""
-      #       tokenUrl: ""
-      #       scope: null
-      #       tokenExpiryBuffer: 60
+cors:
+  allow_origins:
+    - "*"
+    - "http://localhost"
+    - "http://localhost:3000"
+    - "http://localhost:5173"
+    - "http://localhost:8080"
+  allow_methods:
+    - "*"
+  allow_headers:
+    - "*"
+  allow_credentials: true
+  max_age: 600
 
-    # OpenSearch (PPL)
-    opensearch-primary:
-      tags: ["logging", default]
-      enabled: true
-      flavour: OPENSEARCH
-      url: http://localhost:9200
-      indexPattern: otel-logs-*
-      headers: {}
-      auth: null
+# PostgreSQL connection for tenants, integrations, skill execution reports, etc.
+# Override at runtime with ORCHESTRATOR_DATABASE__URL.
+database:
+  url: postgresql+asyncpg://orchestrator:orchestrator@localhost:5432/orchestrator
+  pool_size: 5
+  max_overflow: 10
+  pool_timeout: 30
+  pool_recycle: 1800
+  echo: false
 
-    # ClickHouse (SQL over HTTP)
-    clickhouse-primary:
-      tags: ["logging", default]
-      enabled: true
-      flavour: CLICKHOUSE
-      url: http://localhost:8123
-      database: default
-      table: otel_logs
-      headers: {}
-      auth: null
-
-mcp:
-  # GitHub remote MCP server (Streamable HTTP).
-  # Set enabled: true and provide a GitHub PAT in the Authorization header.
-  # Toolsets served: context, repos, issues, pull_requests, users (default).
-  # See https://github.com/github/github-mcp-server for full toolset docs.
-  github:
-    enabled: true
-    type: streamable_http # stdio | sse | streamable_http
-    url: https://api.githubcopilot.com/mcp/x/repos/readonly
-    headers:
-      Authorization: ""
-    timeout: 15
-    sse_read_timeout: 300
-    cache_tools_list: true # cache list_tools within a single skill run/server session
-
-  # Example SSE server
-  example-sse:
-    enabled: false
-    type: sse
-    url: http://localhost:8080/sse
-    headers: {}
-
+# Local-friendly defaults: no API-key gate, no plan-quota enforcement on matched routes.
+# For staging/production, set disabled: false, quota_disabled: false, and configure pepper + keys.
+auth:
+  disabled: true
+  quota_disabled: true
+  # Exact path + methods that skip API keys (see PublicRouteRule in settings).
+  public_routes:
+    - methods: [GET]
+      path: /health
+    - methods: [GET]
+      path: /docs
+    - methods: [GET]
+      path: /redoc
+    - methods: [GET]
+      path: /openapi.json
+    - methods: [POST]
+      path: /tenants
+  # Path regex + methods → plan_quotas.operation. First match wins.
+  quota_routes:
+    - path_pattern: "^/tasks/run$"
+      methods: [POST]
+      operation: task_run
+      tenant_in_body: true
+    - path_pattern: "^/tenants/[^/]+/skills$"
+      methods: [POST]
+      operation: skill_max

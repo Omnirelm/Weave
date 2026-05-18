@@ -4,12 +4,22 @@ from __future__ import annotations
 
 import json
 import logging
+import uuid
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import Any, Literal
 
 from agents import Agent, AgentOutputSchema, Runner, RunResult
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+from src.api.models.schemas import RunTaskRequest, RunTaskResponse
+from src.api.translators.tasks import (
+    RunTaskRequestDomain,
+    build_run_task_response,
+    extract_preferred_skill_output,
+    run_task_request_to_domain,
+    serialize_task_output,
+)
 
 from src.agent_factories.instructions import (
     get_agent_instructions,
@@ -17,32 +27,16 @@ from src.agent_factories.instructions import (
     get_agent_name,
 )
 from src.core.base import InvocationCost, extract_runner_cost
-from src.core.skills import SkillRegistry, SkillRunner, StepResult
+from src.core.skills import SkillDef, SkillRunner, StepResult
+from src.core.skills.input_validation import validate_skill_instance
 from src.core.tools.base import ToolNotFoundError
+from src.storage.interface import StorageGateway
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
 
 _MAX_REPLANS = 2
-
-
-class InvocationCostJSON(BaseModel):
-    """JSON-serializable cost tree for API responses."""
-
-    label: str
-    total_tokens: int = 0
-    children: list[InvocationCostJSON] = Field(default_factory=list)
-
-    @classmethod
-    def from_cost(cls, c: InvocationCost | None) -> InvocationCostJSON | None:
-        if c is None:
-            return None
-        return cls(
-            label=c.label,
-            total_tokens=c.total_tokens,
-            children=[cls.from_cost(ch) for ch in c.children],
-        )
 
 
 class PlanStep(BaseModel):
@@ -72,23 +66,6 @@ class ExecutionPlan(BaseModel):
     reasoning: str
 
 
-class RunTaskRequest(BaseModel):
-    task: str
-    tenant_id: str = "default"
-    context: dict[str, Any] = Field(default_factory=dict)
-    skill_id: str | None = None
-    input: dict[str, Any] = Field(default_factory=dict)
-
-
-class RunTaskResponse(BaseModel):
-    success: bool
-    summary: str | None = None
-    steps_completed: list[StepResult] = Field(default_factory=list)
-    reasoning: str | None = None
-    error: str | None = None
-    cost: InvocationCostJSON | None = None
-
-
 @dataclass
 class TaskRunState:
     steps_completed: list[StepResult] = field(default_factory=list)
@@ -96,10 +73,90 @@ class TaskRunState:
     cost_children: list[InvocationCost] = field(default_factory=list)
     last_reasoning: str | None = None
     last_error: str | None = None
+    """Set when preferred skill_id run succeeds; used as RunTaskResponse.output."""
+    preferred_skill_output: dict[str, Any] | None = None
+
+
+async def _persist_task_run_record(
+    storage: StorageGateway,
+    *,
+    task_id: uuid.UUID,
+    started_at: datetime,
+    domain_body: RunTaskRequestDomain,
+    state: TaskRunState,
+    response: RunTaskResponse,
+) -> None:
+    finished_at = datetime.now(timezone.utc)
+    cost_payload = (
+        response.cost.model_dump(by_alias=True, exclude_none=True) if response.cost else None
+    )
+    steps_payload = [
+        step.model_dump(by_alias=True, exclude_none=True) for step in response.steps_completed
+    ]
+    await storage.task_runs.create(
+        {
+            "id": task_id,
+            "tenant_slug": domain_body.tenant_id,
+            "success": response.success,
+            "objective": domain_body.task,
+            "skill_id": domain_body.skill_id,
+            "request_input": domain_body.input or None,
+            "output": response.output,
+            "summary": None,
+            "reasoning": response.reasoning,
+            "error": response.error,
+            "steps_completed": steps_payload,
+            "step_execution_detail": state.completed_steps_payload or None,
+            "cost": cost_payload,
+            "started_at": started_at,
+            "finished_at": finished_at,
+        }
+    )
+
+
+async def _return_with_persisted_run(
+    storage: StorageGateway,
+    *,
+    task_id: uuid.UUID,
+    started_at: datetime,
+    domain_body: RunTaskRequestDomain,
+    state: TaskRunState,
+    response: RunTaskResponse,
+) -> RunTaskResponse:
+    try:
+        await _persist_task_run_record(
+            storage,
+            task_id=task_id,
+            started_at=started_at,
+            domain_body=domain_body,
+            state=state,
+            response=response,
+        )
+    except Exception:
+        logger.exception("task_run persist failed")
+        raise HTTPException(status_code=500, detail="Failed to persist task run") from None
+    return response
 
 
 def _plan_step_to_action(step: PlanStep) -> dict[str, Any]:
     return step.model_dump(mode="json", by_alias=True)
+
+
+def _plan_step_for_inner_skill_step(sr: StepResult) -> PlanStep:
+    """Build a PlanStep for persisted step_execution_detail when expanding composed skills."""
+    if sr.invoked_skill_id:
+        return PlanStep(
+            stepType="invoke_skill",
+            skillId=sr.invoked_skill_id,
+            objective=sr.objective,
+        )
+    if sr.invoked_tool_id:
+        return PlanStep(
+            stepType="invoke_tool",
+            toolId=sr.invoked_tool_id,
+            objective=sr.objective,
+        )
+    return PlanStep(stepType="synthesize", objective=sr.objective)
 
 
 def _record_step(
@@ -122,7 +179,7 @@ def _record_step(
     )
 
 
-def _direct_skill_input_payload(task: RunTaskRequest) -> dict[str, Any]:
+def _direct_skill_input_payload(task: RunTaskRequestDomain) -> dict[str, Any]:
     payload = dict(task.input)
     payload.setdefault("objective", task.task)
     payload.setdefault("task", task.task)
@@ -132,37 +189,54 @@ def _direct_skill_input_payload(task: RunTaskRequest) -> dict[str, Any]:
 
 def _response_with_cost(
     *,
+    task_id: uuid.UUID,
+    task_domain: RunTaskRequestDomain,
     success: bool,
     state: TaskRunState,
-    summary: str | None = None,
     error: str | None = None,
 ) -> RunTaskResponse:
+    skill_output: dict[str, Any] | None = None
+    if success:
+        if state.preferred_skill_output is not None:
+            skill_output = state.preferred_skill_output
+        else:
+            skill_output = extract_preferred_skill_output(
+                task_domain,
+                state.steps_completed,
+                state.completed_steps_payload,
+            )
     total_tokens = sum(c.total_tokens for c in state.cost_children)
-    return RunTaskResponse(
+    return build_run_task_response(
+        task_id=task_id,
         success=success,
-        summary=summary,
-        steps_completed=state.steps_completed,
+        steps=state.steps_completed,
         reasoning=state.last_reasoning,
         error=error,
-        cost=InvocationCostJSON.from_cost(
-            InvocationCost(
-                label="run_task",
-                children=state.cost_children,
-                total_tokens=total_tokens,
-            )
+        output=skill_output,
+        cost=InvocationCost(
+            label="run_task",
+            children=state.cost_children,
+            total_tokens=total_tokens,
         ),
     )
 
 
-async def _finalize_success(task: str, state: TaskRunState) -> RunTaskResponse:
-    summary, synth_cost = await _final_summary(task, state.steps_completed)
-    if synth_cost is not None:
-        state.cost_children.append(synth_cost)
-    return _response_with_cost(success=True, state=state, summary=summary)
+def _finalize_success(
+    state: TaskRunState,
+    task_domain: RunTaskRequestDomain,
+    *,
+    task_id: uuid.UUID,
+) -> RunTaskResponse:
+    return _response_with_cost(
+        task_id=task_id,
+        success=True,
+        state=state,
+        task_domain=task_domain,
+    )
 
 
 async def _run_direct_skill_if_requested(
-    task: RunTaskRequest, runner: SkillRunner, state: TaskRunState
+    task: RunTaskRequestDomain, runner: SkillRunner, state: TaskRunState
 ) -> Literal["not_requested", "succeeded", "failed"]:
     """Run preferred skill before planning and return explicit execution status."""
     if not task.skill_id:
@@ -176,26 +250,35 @@ async def _run_direct_skill_if_requested(
     direct_result = await runner.run_skill(
         task.skill_id,
         _direct_skill_input_payload(task),
-        task.context,
         task.tenant_id,
     )
     if direct_result.cost is not None:
         state.cost_children.append(direct_result.cost)
 
-    step_result = StepResult(
-        step_id="plan_step_0",
-        objective=direct_step.objective,
-        success=direct_result.success,
-        output=direct_result.output,
-        error=direct_result.error,
-    )
-    _record_step(
-        step=direct_step,
-        step_result=step_result,
-        steps_completed=state.steps_completed,
-        completed_steps_payload=state.completed_steps_payload,
-    )
+    if direct_result.steps_completed:
+        for sr in direct_result.steps_completed:
+            _record_step(
+                step=_plan_step_for_inner_skill_step(sr),
+                step_result=sr,
+                steps_completed=state.steps_completed,
+                completed_steps_payload=state.completed_steps_payload,
+            )
+    else:
+        step_result = StepResult(
+            step_id="plan_step_0",
+            objective=direct_step.objective,
+            success=direct_result.success,
+            output=direct_result.output,
+            error=direct_result.error,
+        )
+        _record_step(
+            step=direct_step,
+            step_result=step_result,
+            steps_completed=state.steps_completed,
+            completed_steps_payload=state.completed_steps_payload,
+        )
     if direct_result.success:
+        state.preferred_skill_output = serialize_task_output(direct_result.output)
         return "succeeded"
 
     state.last_error = direct_result.error or "Preferred skill failed"
@@ -204,7 +287,7 @@ async def _run_direct_skill_if_requested(
 
 async def _run_planned_iteration(
     *,
-    task: RunTaskRequest,
+    task: RunTaskRequestDomain,
     plan: ExecutionPlan,
     runner: SkillRunner,
     state: TaskRunState,
@@ -239,8 +322,8 @@ async def _run_planned_iteration(
 
 async def _run_planner(
     *,
-    task: RunTaskRequest,
-    registry: SkillRegistry,
+    task: RunTaskRequestDomain,
+    storage: StorageGateway,
     runner: SkillRunner,
     completed_steps: list[dict[str, Any]],
     replan_reason: str | None,
@@ -250,7 +333,18 @@ async def _run_planner(
     model = get_agent_model(agent_key)
     name = get_agent_name(agent_key)
 
-    skills = registry.list_skills(task.tenant_id)
+    rows = await storage.tenant_skills.list_for_tenant(task.tenant_id)
+    skills: list[SkillDef] = []
+    for row in rows:
+        try:
+            skills.append(SkillDef.model_validate(row.definition))
+        except Exception:
+            logger.warning(
+                "Skipping invalid tenant skill definition for tenant=%s skill_id=%s",
+                task.tenant_id,
+                row.skill_id,
+                exc_info=True,
+            )
     available_skills = [
         {
             "id": s.id,
@@ -258,12 +352,13 @@ async def _run_planner(
             "description": s.description,
             "whenToUse": s.description,
             "input_schema": s.input_schema,
+            "output_schema": s.output_schema,
         }
         for s in skills
     ]
-    tools = runner.tool_registry.list_tools()
+    tool_descriptors = await runner.list_tool_descriptors(task.tenant_id)
     available_tools = [
-        {"id": t.name, "description": t.description} for t in tools
+        {"id": t.name, "description": t.description} for t in tool_descriptors
     ]
 
     payload: dict[str, Any] = {
@@ -300,7 +395,7 @@ async def _execute_plan_step(
     step: PlanStep,
     step_index: int,
     *,
-    task: RunTaskRequest,
+    task: RunTaskRequestDomain,
     runner: SkillRunner,
     prior_steps: list[StepResult],
 ) -> tuple[StepResult, list[InvocationCost]]:
@@ -315,7 +410,6 @@ async def _execute_plan_step(
         sr = await runner.run_skill(
             step.skill_id,
             input_payload,
-            task.context,
             task.tenant_id,
         )
         extra_costs = [sr.cost] if sr.cost is not None else []
@@ -326,6 +420,7 @@ async def _execute_plan_step(
                 success=sr.success,
                 output=sr.output,
                 error=sr.error,
+                invoked_skill_id=step.skill_id,
             ),
             extra_costs,
         )
@@ -333,7 +428,7 @@ async def _execute_plan_step(
     if step.step_type == "invoke_tool":
         assert step.tool_id is not None
         try:
-            tool = runner.tool_registry.resolve(step.tool_id, task.context)
+            tool = await runner.resolve_tool(step.tool_id, task.tenant_id)
             out = tool.execute(**(step.params or {}))
         except (ToolNotFoundError, TypeError, ValueError) as exc:
             return (
@@ -343,6 +438,7 @@ async def _execute_plan_step(
                     success=False,
                     output=None,
                     error=str(exc),
+                    invoked_tool_id=step.tool_id,
                 ),
                 [
                     InvocationCost(
@@ -361,6 +457,7 @@ async def _execute_plan_step(
                     success=False,
                     output=None,
                     error=str(exc),
+                    invoked_tool_id=step.tool_id,
                 ),
                 [],
             )
@@ -371,6 +468,7 @@ async def _execute_plan_step(
                 success=True,
                 output=out,
                 error=None,
+                invoked_tool_id=step.tool_id,
             ),
             [
                 InvocationCost(
@@ -415,41 +513,69 @@ async def _execute_plan_step(
     )
 
 
-async def _final_summary(
-    task: str, steps_completed: list[StepResult]
-) -> tuple[str | None, InvocationCost | None]:
-    agent = Agent(
-        name=get_agent_name("task_synthesizer"),
-        model=get_agent_model("task_synthesizer"),
-        instructions=get_agent_instructions("task_synthesizer"),
-        tools=[],
-        output_type=None,
-    )
-    result: RunResult = await Runner.run(
-        starting_agent=agent,
-        input=json.dumps(
-            {"task": task, "steps_completed": [s.model_dump() for s in steps_completed]}
-        ),
-    )
-    out = result.final_output
-    summary = out if isinstance(out, str) else str(out)
-    return summary, extract_runner_cost(result, "task_synthesizer")
-
-
 @router.post("/run", response_model=RunTaskResponse)
 async def run_task(body: RunTaskRequest, request: Request) -> RunTaskResponse:
-    registry: SkillRegistry = request.app.state.skill_registry
+    domain_body = run_task_request_to_domain(body)
+    storage: StorageGateway = request.app.state.storage
     runner: SkillRunner = request.app.state.skill_runner
+
+    if domain_body.skill_id:
+        row = await storage.tenant_skills.get_for_tenant(
+            domain_body.tenant_id, domain_body.skill_id
+        )
+        if row is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Unknown skill_id: {domain_body.skill_id!r}",
+            )
+        try:
+            skill = SkillDef.model_validate(row.definition)
+        except Exception as exc:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Invalid skill definition in database: {exc}",
+            ) from exc
+        merged = _direct_skill_input_payload(domain_body)
+        try:
+            validate_skill_instance(skill, merged)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    task_id = uuid.uuid4()
+    started_at = datetime.now(timezone.utc)
+
     state = TaskRunState()
 
-    direct_skill_status = await _run_direct_skill_if_requested(body, runner, state)
+    direct_skill_status = await _run_direct_skill_if_requested(domain_body, runner, state)
     if direct_skill_status == "succeeded":
-        return await _finalize_success(body.task, state)
+        resp = _finalize_success(
+            state,
+            domain_body,
+            task_id=task_id,
+        )
+        return await _return_with_persisted_run(
+            storage,
+            task_id=task_id,
+            started_at=started_at,
+            domain_body=domain_body,
+            state=state,
+            response=resp,
+        )
     if direct_skill_status == "failed":
-        return _response_with_cost(
+        resp = _response_with_cost(
+            task_id=task_id,
             success=False,
             state=state,
             error=state.last_error,
+            task_domain=domain_body,
+        )
+        return await _return_with_persisted_run(
+            storage,
+            task_id=task_id,
+            started_at=started_at,
+            domain_body=domain_body,
+            state=state,
+            response=resp,
         )
 
     for replan_idx in range(_MAX_REPLANS + 1):
@@ -459,8 +585,8 @@ async def run_task(body: RunTaskRequest, request: Request) -> RunTaskResponse:
 
         try:
             plan, planner_cost = await _run_planner(
-                task=body,
-                registry=registry,
+                task=domain_body,
+                storage=storage,
                 runner=runner,
                 completed_steps=state.completed_steps_payload,
                 replan_reason=replan_reason,
@@ -470,25 +596,61 @@ async def run_task(body: RunTaskRequest, request: Request) -> RunTaskResponse:
             state.cost_children.append(
                 InvocationCost(label="task_planner_error", children=[], total_tokens=0)
             )
-            return _response_with_cost(success=False, state=state, error=str(exc))
+            resp = _response_with_cost(
+                task_id=task_id,
+                success=False,
+                state=state,
+                error=str(exc),
+                task_domain=domain_body,
+            )
+            return await _return_with_persisted_run(
+                storage,
+                task_id=task_id,
+                started_at=started_at,
+                domain_body=domain_body,
+                state=state,
+                response=resp,
+            )
 
         state.cost_children.append(planner_cost)
         state.last_reasoning = plan.reasoning
         plan_failed = await _run_planned_iteration(
-            task=body,
+            task=domain_body,
             plan=plan,
             runner=runner,
             state=state,
         )
 
         if not plan_failed:
-            return await _finalize_success(body.task, state)
+            resp = _finalize_success(
+                state,
+                domain_body,
+                task_id=task_id,
+            )
+            return await _return_with_persisted_run(
+                storage,
+                task_id=task_id,
+                started_at=started_at,
+                domain_body=domain_body,
+                state=state,
+                response=resp,
+            )
 
         if replan_idx >= _MAX_REPLANS:
-            return _response_with_cost(
+            resp = _response_with_cost(
+                task_id=task_id,
                 success=False,
                 state=state,
                 error=state.last_error,
+                task_domain=domain_body,
+            )
+            return await _return_with_persisted_run(
+                storage,
+                task_id=task_id,
+                started_at=started_at,
+                domain_body=domain_body,
+                state=state,
+                response=resp,
             )
 
     raise RuntimeError("run_task: exhausted replan loop without returning")
