@@ -895,6 +895,12 @@ components:
           type: string
           description: Jaeger query API base URL.
           example: "http://localhost:16686"
+        basePath:
+          type: string
+          description: >
+            Optional path prefix before /api/v3 on the Jaeger query service
+            (e.g. "/jaeger/ui" when jaeger_query.base_path is configured).
+          example: "/jaeger/ui"
         auth_mechanism:
           $ref: '#/components/schemas/LogSourceAuthMechanismV1'
 

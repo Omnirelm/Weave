@@ -322,3 +322,34 @@ async def test_run_planner_includes_skill_hint_and_input(
     assert planner_task["tenantId"] == "default"
     assert planner_task["skillId"] == "log_analysis"
     assert planner_task["input"] == {"alert_id": "a-1"}
+
+
+@pytest.mark.asyncio
+async def test_execute_plan_step_merges_task_input_into_skill_payload() -> None:
+    runner = _DummyRunner(SkillResult(success=True, output={"ok": True}))
+    task = RunTaskRequestDomain(
+        task="analyze trace latency",
+        tenant_id="default",
+        input={"trace_id": "00f749071260fecd7bf21aabc0c9309c"},
+    )
+    step = tasks.PlanStep(
+        stepType="invoke_skill",
+        skillId="trace_analysis",
+        objective="Fetch trace and produce RCA",
+    )
+
+    await tasks._execute_plan_step(
+        step,
+        0,
+        task=task,
+        runner=runner,
+        prior_steps=[],
+    )
+
+    assert len(runner.calls) == 1
+    _, payload, tenant_id = runner.calls[0]
+    assert tenant_id == "default"
+    assert payload["trace_id"] == "00f749071260fecd7bf21aabc0c9309c"
+    assert payload["objective"] == "Fetch trace and produce RCA"
+    assert payload["task"] == "analyze trace latency"
+    assert payload["prior_steps"] == []

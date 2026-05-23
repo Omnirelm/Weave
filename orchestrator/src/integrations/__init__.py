@@ -12,12 +12,13 @@ from .logs import (
     OpenSearchExtractor,
 )
 from .traces import (
+    GrafanaTempoExtractor,
+    JaegerExtractor,
     TraceExtractor,
     TraceExtractorError,
-    JaegerExtractor,
-    GrafanaTempoExtractor,
+    TraceSourceSpec,
+    get_trace_extractor,
 )
-from .traces.registry import get_trace_extractor
 from .repository import validate_repository, parse_github_repo_url
 
 __all__ = [
@@ -35,6 +36,7 @@ __all__ = [
     "TraceExtractorError",
     "JaegerExtractor",
     "GrafanaTempoExtractor",
+    "TraceSourceSpec",
     "get_trace_extractor",
     # Repository (GitHub validation)
     "validate_repository",

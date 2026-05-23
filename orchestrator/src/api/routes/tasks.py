@@ -179,11 +179,20 @@ def _record_step(
     )
 
 
-def _direct_skill_input_payload(task: RunTaskRequestDomain) -> dict[str, Any]:
+def _skill_input_payload(
+    task: RunTaskRequestDomain,
+    *,
+    objective: str | None = None,
+    prior_steps: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Merge request input with orchestrator fields for skill invocation."""
     payload = dict(task.input)
-    payload.setdefault("objective", task.task)
+    payload.setdefault("objective", objective if objective is not None else task.task)
     payload.setdefault("task", task.task)
-    payload.setdefault("prior_steps", [])
+    if prior_steps is not None:
+        payload["prior_steps"] = prior_steps
+    else:
+        payload.setdefault("prior_steps", [])
     return payload
 
 
@@ -249,7 +258,7 @@ async def _run_direct_skill_if_requested(
     )
     direct_result = await runner.run_skill(
         task.skill_id,
-        _direct_skill_input_payload(task),
+        _skill_input_payload(task),
         task.tenant_id,
     )
     if direct_result.cost is not None:
@@ -402,11 +411,11 @@ async def _execute_plan_step(
     step_id = f"plan_step_{step_index}"
     if step.step_type == "invoke_skill":
         assert step.skill_id is not None
-        input_payload: dict[str, Any] = {
-            "objective": step.objective,
-            "task": task.task,
-            "prior_steps": [s.model_dump() for s in prior_steps],
-        }
+        input_payload = _skill_input_payload(
+            task,
+            objective=step.objective,
+            prior_steps=[s.model_dump() for s in prior_steps],
+        )
         sr = await runner.run_skill(
             step.skill_id,
             input_payload,
@@ -535,7 +544,7 @@ async def run_task(body: RunTaskRequest, request: Request) -> RunTaskResponse:
                 status_code=422,
                 detail=f"Invalid skill definition in database: {exc}",
             ) from exc
-        merged = _direct_skill_input_payload(domain_body)
+        merged = _skill_input_payload(domain_body)
         try:
             validate_skill_instance(skill, merged)
         except ValueError as exc:

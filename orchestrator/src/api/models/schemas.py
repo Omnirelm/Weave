@@ -10,6 +10,7 @@ from enum import Enum
 from typing import Annotated, Any, Union
 
 from pydantic import BaseModel, ConfigDict, Field
+from pydantic import AliasChoices
 from typing_extensions import Literal
 
 from .models.click_house_v1 import ClickHouseV1
@@ -143,6 +144,15 @@ class JaegerIntegrationBody(JaegerV1):
     id: str | None = None
     created_at: int | None = None
     updated_at: int | None = None
+    base_path: str | None = Field(
+        default=None,
+        description=(
+            "Optional path prefix before /api/v3 on the Jaeger query service "
+            "(e.g. '/jaeger/ui' when jaeger_query.base_path is configured)."
+        ),
+        validation_alias=AliasChoices("basePath", "base_path"),
+        serialization_alias="basePath",
+    )
 
     def validate(self) -> None:
         pass  # url already required by JaegerV1

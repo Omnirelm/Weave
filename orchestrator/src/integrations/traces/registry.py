@@ -1,9 +1,11 @@
 """
-Trace extractor registry: register flavour -> factory, get extractor by config dict.
+Trace extractor registry: register flavour -> factory, get extractor by TraceSourceSpec.
 API and core use this single path to create trace extractors.
 """
 import logging
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable
+
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator
 
 from .base import TraceExtractor
 from ..flavours import TraceSourceFlavour
@@ -13,10 +15,37 @@ from .tempo import GrafanaTempoExtractor
 
 logger = logging.getLogger(__name__)
 
-# Type: (trace_source_dict, tenant_id) -> TraceExtractor
-_TraceFactory = Callable[[Dict[str, Any], str], TraceExtractor]
 
-_REGISTRY: Dict[str, _TraceFactory] = {}
+class TraceSourceSpec(BaseModel):
+    """Validated config for building a TraceExtractor (tenant row config + flavour)."""
+
+    model_config = ConfigDict(populate_by_name=True, str_strip_whitespace=True, extra="ignore")
+
+    flavour: str
+    url: str
+    auth_mechanism: dict[str, Any] | None = Field(
+        default=None,
+        validation_alias=AliasChoices("authMechanism", "authentication"),
+        serialization_alias="authMechanism",
+    )
+    base_path: str = Field(
+        default="",
+        validation_alias=AliasChoices("basePath", "base_path"),
+        serialization_alias="basePath",
+    )
+
+    @field_validator("flavour", mode="before")
+    @classmethod
+    def _normalize_flavour(cls, v: Any) -> str:
+        if v is None:
+            return ""
+        return str(v).upper().strip()
+
+
+# Type: (spec, tenant_id) -> TraceExtractor
+_TraceFactory = Callable[[TraceSourceSpec, str], TraceExtractor]
+
+_REGISTRY: dict[str, _TraceFactory] = {}
 
 
 def register(trace_flavour: str, factory: _TraceFactory) -> None:
@@ -25,56 +54,53 @@ def register(trace_flavour: str, factory: _TraceFactory) -> None:
     _REGISTRY[key] = factory
 
 
-def get_trace_extractor(
-    trace_source: Dict[str, Any], tenant_id: str
-) -> TraceExtractor:
+def get_trace_extractor(spec: TraceSourceSpec, tenant_id: str = "") -> TraceExtractor:
     """
-    Create a TraceExtractor from trace_source config dict.
+    Create a TraceExtractor from a validated TraceSourceSpec.
 
     Args:
-        trace_source: Dict with keys flavour, url, authentication (optional).
-                      Same shape as API TraceSource.model_dump(by_alias=True).
-        tenant_id: Tenant ID for multi-tenant environments.
+        spec: Connection and auth fields for the trace backend.
+        tenant_id: Tenant slug or id for multi-tenant headers (e.g. X-Scope-OrgID).
 
     Returns:
         TraceExtractor instance.
 
     Raises:
-        ValueError: If flavour is missing, url missing, or flavour not registered.
+        ValueError: If flavour or url is missing/invalid, or flavour is unsupported.
     """
-    flavour = (trace_source.get("flavour") or "").upper().strip()
+    flavour = spec.flavour
     if not flavour:
-        raise ValueError("trace_source must contain 'flavour'")
-    url = (trace_source.get("url") or "").strip()
+        raise ValueError("trace source must have non-empty flavour")
+    url = (spec.url or "").strip()
     if not url:
-        raise ValueError("trace_source must contain 'url'")
+        raise ValueError("trace source must have non-empty url")
 
     factory = _REGISTRY.get(flavour)
     if not factory:
         raise ValueError(f"Unsupported trace source flavour: {flavour}")
 
-    return factory(trace_source, tenant_id)
+    return factory(spec, tenant_id)
 
 
-def _factory_jaeger(trace_source: Dict[str, Any], tenant_id: str) -> TraceExtractor:
-    base_url = trace_source.get("url", "").rstrip("/")
-    auth = trace_source.get("authentication")
-    result = build_headers_and_oauth_from_auth_dict(auth)
+def _factory_jaeger(spec: TraceSourceSpec, tenant_id: str) -> TraceExtractor:
+    base_url = spec.url.rstrip("/")
+    result = build_headers_and_oauth_from_auth_dict(spec.auth_mechanism)
     # Trace extractors use headers only (OAuth not yet supported for traces)
+    bp = (spec.base_path or "").strip().rstrip("/")
     return JaegerExtractor(
         base_url=base_url,
-        tenant_id=tenant_id,
+        base_path=bp,
+        tenant_id=tenant_id or None,
         headers=result.headers or {},
     )
 
 
-def _factory_tempo(trace_source: Dict[str, Any], tenant_id: str) -> TraceExtractor:
-    base_url = trace_source.get("url", "").rstrip("/")
-    auth = trace_source.get("authentication")
-    result = build_headers_and_oauth_from_auth_dict(auth)
+def _factory_tempo(spec: TraceSourceSpec, tenant_id: str) -> TraceExtractor:
+    base_url = spec.url.rstrip("/")
+    result = build_headers_and_oauth_from_auth_dict(spec.auth_mechanism)
     return GrafanaTempoExtractor(
         base_url=base_url,
-        tenant_id=tenant_id,
+        tenant_id=tenant_id or None,
         headers=result.headers or {},
     )
 

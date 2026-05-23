@@ -1,6 +1,6 @@
 """
 Jaeger integration for trace extraction and analysis.
-Supports both Jaeger v1 and v2 Query API.
+Uses Jaeger Query API v3 (stable OTLP JSON over HTTP).
 """
 from datetime import datetime
 import json
@@ -12,23 +12,35 @@ from .base import TraceExtractor, TraceExtractorError
 logger = logging.getLogger(__name__)
 
 
+def _unix_nano(value: Any) -> int:
+    """Coerce OTLP Unix-nano timestamp (int or string) to int."""
+    if value is None:
+        return 0
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str):
+        stripped = value.strip()
+        return int(stripped) if stripped else 0
+    return int(value)
+
+
 class JaegerExtractor(TraceExtractor):
     """Jaeger trace extractor implementation"""
     
-    def __init__(self, base_url: str, 
-                 base_path: str = "/jaeger/ui",
+    def __init__(self, base_url: str,
+                 base_path: str = "",
                  tenant_id: Optional[str] = None, **kwargs):
         """
         Initialize Jaeger extractor.
-        
+
         Args:
-            base_url: Jaeger base URL (e.g., 'http://localhost:8080')
-            base_path: Base path for API (default: '/jaeger/ui')
+            base_url: Jaeger query base URL (e.g. 'http://localhost:16686')
+            base_path: Optional path prefix before /api/v3 (when Jaeger is mounted behind a sub-path)
             tenant_id: Optional tenant ID for multi-tenancy
             **kwargs: Additional headers
         """
         self.base_path = base_path.rstrip('/')
-        self.api_base = f"{base_url.rstrip('/')}{self.base_path}/api"
+        self.api_base = f"{base_url.rstrip('/')}{self.base_path}/api/v3"
         self.tenant_id = tenant_id
         
         headers = {}
@@ -42,8 +54,8 @@ class JaegerExtractor(TraceExtractor):
         super().__init__(base_url, headers)
     
     @classmethod
-    def from_bearer_token(cls, base_url: str, token: str, 
-                         base_path: str = "/jaeger/ui",
+    def from_bearer_token(cls, base_url: str, token: str,
+                         base_path: str = "",
                          tenant_id: Optional[str] = None, 
                          headers: Optional[Dict[str, str]] = None) -> 'JaegerExtractor':
         """
@@ -52,10 +64,10 @@ class JaegerExtractor(TraceExtractor):
         Args:
             base_url: Jaeger base URL (e.g., 'http://localhost:8080')
             token: Bearer token for authentication
-            base_path: Base path for API (default: '/jaeger/ui')
+            base_path: Path prefix before /api (default: '')
             tenant_id: Optional tenant ID for multi-tenancy
             headers: Optional additional headers to merge with auth header
-            
+
         Returns:
             JaegerExtractor instance configured with Bearer token authentication
         """
@@ -72,7 +84,7 @@ class JaegerExtractor(TraceExtractor):
     
     @classmethod
     def from_basic_auth(cls, base_url: str, username: str, password: str,
-                       base_path: str = "/jaeger/ui",
+                       base_path: str = "",
                        tenant_id: Optional[str] = None, 
                        headers: Optional[Dict[str, str]] = None) -> 'JaegerExtractor':
         """
@@ -82,10 +94,10 @@ class JaegerExtractor(TraceExtractor):
             base_url: Jaeger base URL (e.g., 'http://localhost:8080')
             username: Username for Basic authentication
             password: Password for Basic authentication
-            base_path: Base path for API (default: '/jaeger/ui')
+            base_path: Path prefix before /api (default: '')
             tenant_id: Optional tenant ID for multi-tenancy
             headers: Optional additional headers to merge with auth header
-            
+
         Returns:
             JaegerExtractor instance configured with Basic authentication
         """
@@ -105,7 +117,7 @@ class JaegerExtractor(TraceExtractor):
     
     @classmethod
     def from_api_key(cls, base_url: str, api_key: str, header_name: str = 'X-API-Key',
-                    base_path: str = "/jaeger/ui",
+                    base_path: str = "",
                     tenant_id: Optional[str] = None, 
                     headers: Optional[Dict[str, str]] = None) -> 'JaegerExtractor':
         """
@@ -115,10 +127,10 @@ class JaegerExtractor(TraceExtractor):
             base_url: Jaeger base URL (e.g., 'http://localhost:8080')
             api_key: API key for authentication
             header_name: Header name to use for API key (default: 'X-API-Key')
-            base_path: Base path for API (default: '/jaeger/ui')
+            base_path: Path prefix before /api (default: '')
             tenant_id: Optional tenant ID for multi-tenancy
             headers: Optional additional headers to merge with API key header
-            
+
         Returns:
             JaegerExtractor instance configured with API key authentication
         """
@@ -135,50 +147,48 @@ class JaegerExtractor(TraceExtractor):
     
     def fetch_trace(self, trace_id: str, **kwargs) -> Dict[str, Any]:
         """
-        Fetch a trace by its ID from Jaeger.
-        
-        Args:
-            trace_id: The trace ID to fetch (hex string)
-            **kwargs: Additional query parameters
-            
-        Returns:
-            Trace data in Jaeger format
-            
-        Raises:
-            TraceExtractorError: If fetching trace fails
+        Fetch a trace by its ID from Jaeger Query API v3.
+
+        Uses GET /api/v3/traces/{trace_id} (stable OTLP JSON over HTTP).
         """
         url = f"{self.api_base}/traces/{trace_id}"
-        
-        # Log the request
-        logger.debug(f"Fetching trace: {trace_id}, URL: {url}")
-        
-        # Make the request
-        response = self._make_request('GET', url, params=kwargs)
-        
+        logger.debug("Fetching trace: %s, URL: %s", trace_id, url)
+        return self._fetch_trace_from_url(trace_id, url, kwargs)
+
+    def _fetch_trace_from_url(
+        self, trace_id: str, url: str, params: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        response = self._make_request("GET", url, params=params)
+        text = (response.text or "").strip()
+        if not text:
+            raise TraceExtractorError(
+                f"Empty response body from Jaeger (HTTP {response.status_code}) at {url}"
+            )
         try:
             data = response.json()
-            
-            # Jaeger v2 returns data with 'data' key containing array of traces
-            if 'data' in data:
-                traces = data.get('data', [])
-                if traces:
-                    return self._parse_jaeger_trace(traces[0], trace_id)
-                else:
-                    raise TraceExtractorError(f"No trace found with ID: {trace_id}")
-            # Handle OTLP format if returned
-            elif 'resourceSpans' in data:
-                return self._parse_otlp_trace(data, trace_id)
-            else:
-                raise TraceExtractorError(f"Unexpected trace format: {list(data.keys())}")
-            
-        except json.JSONDecodeError as e:
-            raise TraceExtractorError(f"Failed to parse trace response: {str(e)}")
-        except KeyError as e:
-            raise TraceExtractorError(f"Unexpected trace format: missing key {str(e)}")
+        except json.JSONDecodeError as exc:
+            preview = text[:200]
+            raise TraceExtractorError(
+                f"Non-JSON response from Jaeger (HTTP {response.status_code}) at {url}: "
+                f"{preview!r}"
+            ) from exc
+        return self._parse_v3_trace_response(data, trace_id)
+
+    def _parse_v3_trace_response(self, data: Dict[str, Any], trace_id: str) -> Dict[str, Any]:
+        """Parse Jaeger Query API v3 GetTrace response: {"result": TracesData}."""
+        if "result" not in data:
+            raise TraceExtractorError(
+                f"Unexpected Jaeger v3 response (missing 'result' envelope): {list(data.keys())}"
+            )
+        result = data["result"]
+        if not isinstance(result, dict) or "resourceSpans" not in result:
+            keys = list(result.keys()) if isinstance(result, dict) else type(result)
+            raise TraceExtractorError(f"Unexpected Jaeger v3 trace payload: {keys}")
+        return self._parse_otlp_trace(result, trace_id)
     
     def _parse_otlp_trace(self, data: Dict[str, Any], trace_id: str) -> Dict[str, Any]:
         """
-        Parse OTLP format trace data (Jaeger v2).
+        Parse OTLP TracesData from Jaeger Query API v3.
         
         Args:
             data: Raw OTLP trace data
@@ -216,37 +226,6 @@ class JaegerExtractor(TraceExtractor):
             'services': list(set(s.get('serviceName', 'unknown') for s in spans))
         }
     
-    def _parse_jaeger_trace(self, trace_data: Dict[str, Any], trace_id: str) -> Dict[str, Any]:
-        """
-        Parse Jaeger native format trace data (Jaeger v1).
-        
-        Args:
-            trace_data: Raw Jaeger trace data
-            trace_id: The trace ID
-            
-        Returns:
-            Parsed trace data with spans
-        """
-        spans = []
-        
-        # Parse Jaeger format spans
-        for span in trace_data.get('spans', []):
-            parsed_span = self._parse_jaeger_span(span)
-            spans.append(parsed_span)
-        
-        # Sort spans by start time
-        spans.sort(key=lambda s: s.get('startTime', 0))
-        
-        return {
-            'traceID': trace_id,
-            'spans': spans,
-            'spanCount': len(spans),
-            'duration': self._calculate_trace_duration(spans),
-            'rootSpan': self._find_root_span(spans),
-            'services': list(set(s.get('serviceName', 'unknown') for s in spans)),
-            'processes': trace_data.get('processes', {})
-        }
-    
     def _parse_otlp_span(self, span: Dict[str, Any], resource_attrs: Dict[str, Any], 
                          scope_name: str) -> Dict[str, Any]:
         """Parse a single span from OTLP format"""
@@ -261,7 +240,7 @@ class JaegerExtractor(TraceExtractor):
         for event in span.get('events', []):
             events.append({
                 'name': event.get('name', ''),
-                'timestamp': event.get('timeUnixNano', 0),
+                'timestamp': _unix_nano(event.get('timeUnixNano')),
                 'attributes': self._parse_otlp_attributes(event.get('attributes', []))
             })
         
@@ -280,15 +259,18 @@ class JaegerExtractor(TraceExtractor):
             5: 'CONSUMER'
         }
         
+        start_time = _unix_nano(span.get('startTimeUnixNano'))
+        end_time = _unix_nano(span.get('endTimeUnixNano'))
+
         return {
             'spanId': span_id,
             'traceId': span.get('traceId', ''),
             'parentSpanId': parent_span_id,
             'name': span.get('name', ''),
             'kind': kind_map.get(span_kind, 'UNSPECIFIED'),
-            'startTime': span.get('startTimeUnixNano', 0),
-            'endTime': span.get('endTimeUnixNano', 0),
-            'duration': span.get('endTimeUnixNano', 0) - span.get('startTimeUnixNano', 0),
+            'startTime': start_time,
+            'endTime': end_time,
+            'duration': end_time - start_time,
             'attributes': attributes,
             'events': events,
             'status': {
@@ -300,61 +282,6 @@ class JaegerExtractor(TraceExtractor):
             'resource': resource_attrs,
             'scope': scope_name
         }
-    
-    def _parse_jaeger_span(self, span: Dict[str, Any]) -> Dict[str, Any]:
-        """Parse a single span from Jaeger native format"""
-        span_id = span.get('spanID', '')
-        parent_span_id = self._get_parent_span_id(span)
-        
-        # Parse tags (Jaeger's version of attributes)
-        tags = span.get('tags', [])
-        attributes = {tag['key']: tag['value'] for tag in tags}
-        
-        # Parse logs (Jaeger's version of events)
-        events = []
-        for log in span.get('logs', []):
-            event_attrs = {field['key']: field['value'] for field in log.get('fields', [])}
-            events.append({
-                'timestamp': log.get('timestamp', 0),
-                'attributes': event_attrs
-            })
-        
-        # Determine status from tags
-        status_code = attributes.get('otel.status_code', 'UNSET')
-        is_error = attributes.get('error', False)
-        
-        # Get process info for service name
-        process_id = span.get('processID', '')
-        service_name = span.get('process', {}).get('serviceName', 'unknown')
-        
-        return {
-            'spanId': span_id,
-            'traceId': span.get('traceID', ''),
-            'parentSpanId': parent_span_id,
-            'name': span.get('operationName', ''),
-            'kind': attributes.get('span.kind', 'INTERNAL'),
-            'startTime': span.get('startTime', 0),
-            'endTime': span.get('startTime', 0) + span.get('duration', 0),
-            'duration': span.get('duration', 0),
-            'attributes': attributes,
-            'events': events,
-            'status': {
-                'code': 2 if is_error else 1,
-                'message': attributes.get('otel.status_description', ''),
-                'ok': not is_error
-            },
-            'serviceName': service_name,
-            'processID': process_id,
-            'warnings': span.get('warnings', [])
-        }
-    
-    def _get_parent_span_id(self, span: Dict[str, Any]) -> str:
-        """Extract parent span ID from Jaeger span references"""
-        references = span.get('references', [])
-        for ref in references:
-            if ref.get('refType') == 'CHILD_OF':
-                return ref.get('spanID', '')
-        return ''
     
     def _parse_otlp_attributes(self, attributes: List[Dict[str, Any]]) -> Dict[str, Any]:
         """Parse OTLP attributes into a dict"""

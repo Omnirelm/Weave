@@ -31,6 +31,7 @@ from src.integrations.logs.tools import (
     OpenSearchGetIndexNameTool,
     OpenSearchValidateQueryTool,
 )
+from src.integrations.traces.tools import JaegerFetchTraceTool, TempoFetchTraceTool
 from src.storage import get_storage
 
 logger = logging.getLogger(__name__)
@@ -64,6 +65,9 @@ INTEGRATION_TOOLS: dict[str, type[IntegrationTool]] = {
     "clickhouse_validate_query":     ClickHouseValidateQueryTool,
     "clickhouse_fetch_logs":         ClickHouseFetchLogsTool,
     "clickhouse_clean_query_string": ClickHouseCleanQueryStringTool,
+    # Traces
+    "jaeger_fetch_trace": JaegerFetchTraceTool,
+    "tempo_fetch_trace": TempoFetchTraceTool,
 }
 
 

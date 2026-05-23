@@ -79,7 +79,8 @@ class ToolProvider:
                 )
                 continue
 
-            tools.append(tool_cls.from_config(config))
+            cfg = {**config, "_tenantSlug": tenant_slug}
+            tools.append(tool_cls.from_config(cfg))
 
         return tools
 
@@ -142,7 +143,7 @@ class ToolProvider:
                 continue
             cfg = dict(row.config or {})
             # flavour is stored on the row, not inside config (see create_request_to_payload).
-            # LogSourceSpec and similar consumers require flavour inside the dict.
+            # LogSourceSpec / TraceSourceSpec and similar consumers require flavour inside the dict.
             if row.flavour:
                 cfg["flavour"] = row.flavour
             out[(row.integration_type, row.flavour)] = cfg
