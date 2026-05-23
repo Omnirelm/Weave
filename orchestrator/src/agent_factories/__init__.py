@@ -1,3 +1,1 @@
-from src.agent_factories.log_query_factory import AgentFactory, QueryGeneratorAgentOutput
-
-__all__ = ["AgentFactory", "QueryGeneratorAgentOutput"]
+"""Packaged agent instruction YAML and helpers (see ``instructions`` submodule)."""

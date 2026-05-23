@@ -6,7 +6,6 @@ by the OpenAPI generator.
 """
 from __future__ import annotations
 
-from enum import Enum
 from typing import Annotated, Any, Union
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -44,42 +43,8 @@ from .models.tools_page_response import ToolsPageResponse
 from .models.trace_source_v1 import TraceSourceV1
 
 
-class Type(str, Enum):
-    invoke_skill = "invoke_skill"
-    invoke_tool = "invoke_tool"
-    synthesize = "synthesize"
-
-
-class Kind(str, Enum):
-    simple = "simple"
-    composed = "composed"
-
-
 class CreateTenantRequest(TenantV1):
     pass
-
-
-TenantResource = TenantV1
-
-
-class PatchTenantToolConfigRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    config: dict[str, Any]
-
-
-class ExecuteSkillRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    input: dict[str, Any]
-    context: dict[str, Any] | None = {}
-    tool_config: dict[str, Any] | None = {}
-
-
-class ExecuteSkillResponse(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    success: bool
-    output: dict[str, Any] | None = None
-    error: str | None = None
-    cost: InvocationCostDto | None = None
 
 
 # ---------------------------------------------------------------------------

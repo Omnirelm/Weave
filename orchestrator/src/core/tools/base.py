@@ -1,16 +1,16 @@
 """
-Tool registry and base tool abstraction for programmatic and agent invocation.
+Base tool abstraction for programmatic and agent invocation.
 """
 
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Any, Callable, ClassVar, Dict, List, Sequence
+from typing import Any, ClassVar
 
 
 class ToolNotFoundError(KeyError):
-    """Raised when a tool name is not registered in a ToolRegistry."""
+    """Raised when a requested tool name is not available for the tenant."""
 
 
 @dataclass(frozen=True)
@@ -68,76 +68,3 @@ class IntegrationTool(BaseTool, ABC):
     @abstractmethod
     def from_config(cls, config: dict[str, Any]) -> "IntegrationTool":
         """Construct this tool from a TenantIntegration config dict."""
-
-
-class ToolRegistry:
-    """Scoped registry of tools (not a singleton)."""
-
-    def __init__(self) -> None:
-        self._tools: Dict[str, BaseTool] = {}
-        self._factories: Dict[str, Callable[[dict[str, Any]], BaseTool]] = {}
-        self._factory_descriptors: Dict[str, ToolDescriptor] = {}
-        self._config_schemas: Dict[str, type[Any] | None] = {}
-
-    def register(self, tool: BaseTool) -> ToolRegistry:
-        """Register a tool by `tool.name`. Returns self for chaining."""
-        self._tools[tool.name] = tool
-        self._config_schemas[tool.name] = type(tool).config_schema()
-        return self
-
-    def get(self, name: str) -> BaseTool:
-        """Return the tool registered under `name`."""
-        try:
-            return self._tools[name]
-        except KeyError as e:
-            raise ToolNotFoundError(f"Tool not found: {name!r}") from e
-
-    def register_factory(
-        self,
-        name: str,
-        fn: Callable[[dict[str, Any]], BaseTool],
-        *,
-        description: str | None = None,
-        config_schema: type[Any] | None = None,
-    ) -> ToolRegistry:
-        """Register a factory for context-dependent tools."""
-        self._factories[name] = fn
-        self._factory_descriptors[name] = ToolDescriptor(
-            name=name,
-            description=description or f"Factory-registered tool {name}.",
-        )
-        self._config_schemas[name] = config_schema
-        return self
-
-    def resolve(self, name: str, context: dict[str, Any]) -> BaseTool:
-        """Return a static tool instance or instantiate a factory."""
-        if name in self._tools:
-            return self._tools[name]
-        factory = self._factories.get(name)
-        if factory is not None:
-            return factory(context)
-        raise ToolNotFoundError(f"Tool not found: {name!r}")
-
-    def list_tools(self) -> List[BaseTool]:
-        """All registered tools."""
-        return list(self._tools.values())
-
-    def list_tool_descriptors(self) -> List[ToolDescriptor]:
-        """Planner-facing metadata for static and factory tool registrations."""
-        static_descriptors = [
-            ToolDescriptor(name=t.name, description=t.description)
-            for t in self._tools.values()
-        ]
-        return [*static_descriptors, *self._factory_descriptors.values()]
-
-    def names(self) -> List[str]:
-        """Registered tool names, including factory registrations."""
-        return [descriptor.name for descriptor in self.list_tool_descriptors()]
-
-    def get_function_tools(self, names: Sequence[str]) -> List[Any]:
-        """Build agent tool list in the given order."""
-        return [self.get(n).as_function_tool() for n in names]
-
-    def config_schema(self, name: str) -> type[Any] | None:
-        """Return the configured schema for a tool if one exists."""
-        return self._config_schemas.get(name)

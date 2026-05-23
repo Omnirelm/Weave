@@ -12,15 +12,6 @@
 
 BEGIN;
 
--- Status enum for skill execution reports.
-DO $$
-BEGIN
-    IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'skill_execution_status') THEN
-        CREATE TYPE skill_execution_status AS ENUM ('pending', 'running', 'success', 'failed');
-    END IF;
-END
-$$;
-
 -- Plans (subscription tiers; quotas reference these).
 CREATE TABLE IF NOT EXISTS plans (
     slug           VARCHAR(64)   PRIMARY KEY,
@@ -89,25 +80,6 @@ CREATE TABLE IF NOT EXISTS tenant_quota_usage (
     updated_at    TIMESTAMPTZ   NOT NULL DEFAULT now(),
     PRIMARY KEY (tenant_slug, operation, period_key)
 );
-
--- Skill execution reports capture one run of a skill for a tenant.
-CREATE TABLE IF NOT EXISTS skill_execution_reports (
-    id           UUID                   PRIMARY KEY,
-    tenant_slug  VARCHAR(64)            NOT NULL REFERENCES tenants (slug) ON DELETE CASCADE,
-    skill_name   VARCHAR(255)           NOT NULL,
-    status       skill_execution_status NOT NULL DEFAULT 'pending',
-    input        JSONB                  NOT NULL DEFAULT '{}'::jsonb,
-    output       JSONB,
-    error        TEXT,
-    started_at   TIMESTAMPTZ,
-    finished_at  TIMESTAMPTZ,
-    created_at   TIMESTAMPTZ            NOT NULL DEFAULT now(),
-    updated_at   TIMESTAMPTZ            NOT NULL DEFAULT now()
-);
-
-CREATE INDEX IF NOT EXISTS ix_skill_execution_reports_tenant_slug ON skill_execution_reports (tenant_slug);
-CREATE INDEX IF NOT EXISTS ix_skill_execution_reports_skill_name  ON skill_execution_reports (skill_name);
-CREATE INDEX IF NOT EXISTS ix_skill_execution_reports_status      ON skill_execution_reports (status);
 
 -- Tenant integrations: one row per (tenant, type, flavour) combination.
 CREATE TABLE IF NOT EXISTS tenant_integrations (

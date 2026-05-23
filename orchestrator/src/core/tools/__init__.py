@@ -1,6 +1,6 @@
-"""Tool registry and base tool types."""
+"""Base tool types and ToolProvider."""
 
-from src.core.tools.base import BaseTool, IntegrationTool, ToolDescriptor, ToolNotFoundError, ToolRegistry
+from src.core.tools.base import BaseTool, IntegrationTool, ToolDescriptor, ToolNotFoundError
 from src.core.tools.provider import ToolProvider
 
 __all__ = [
@@ -9,5 +9,4 @@ __all__ = [
     "ToolDescriptor",
     "ToolNotFoundError",
     "ToolProvider",
-    "ToolRegistry",
 ]

@@ -4,7 +4,6 @@ from src.storage.models.base import Base, TimestampMixin
 from src.storage.models.integration import TenantIntegration
 from src.storage.models.plan import Plan
 from src.storage.models.plan_quota import PlanQuota
-from src.storage.models.skill_report import SkillExecutionReport, SkillExecutionStatus
 from src.storage.models.task_run import TaskRun
 from src.storage.models.tenant import Tenant
 from src.storage.models.tenant_api_key import TenantApiKey
@@ -21,7 +20,5 @@ __all__ = [
     "TenantIntegration",
     "TenantQuotaUsage",
     "TenantSkill",
-    "SkillExecutionReport",
-    "SkillExecutionStatus",
     "TaskRun",
 ]

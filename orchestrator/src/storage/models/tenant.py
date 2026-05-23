@@ -11,7 +11,6 @@ from src.storage.models.base import Base, TimestampMixin
 if TYPE_CHECKING:
     from src.storage.models.integration import TenantIntegration
     from src.storage.models.plan import Plan
-    from src.storage.models.skill_report import SkillExecutionReport
     from src.storage.models.task_run import TaskRun
     from src.storage.models.tenant_api_key import TenantApiKey
     from src.storage.models.tenant_quota_usage import TenantQuotaUsage
@@ -34,11 +33,6 @@ class Tenant(Base, TimestampMixin):
     plan: Mapped["Plan"] = relationship(
         back_populates="tenants",
         foreign_keys=[plan_slug],
-        lazy="raise",
-    )
-    skill_reports: Mapped[list["SkillExecutionReport"]] = relationship(
-        back_populates="tenant",
-        cascade="all, delete-orphan",
         lazy="raise",
     )
     integrations: Mapped[list["TenantIntegration"]] = relationship(

@@ -21,7 +21,7 @@ cors:
   allow_credentials: true
   max_age: 600
 
-# PostgreSQL connection for tenants, integrations, skill execution reports, etc.
+# PostgreSQL connection for tenants, integrations, tenant skills, task runs, etc.
 # Override at runtime with ORCHESTRATOR_DATABASE__URL.
 database:
   url: postgresql+asyncpg://orchestrator:orchestrator@localhost:5432/orchestrator
