@@ -49,6 +49,8 @@ SQLAlchemy 2.x (async) + PostgreSQL. The app does not migrate schema by itself â
 
 Full request/response shapes: **`/docs`** or [`spec/openapi.yaml`](spec/openapi.yaml).
 
+**`task_runs.step_execution_detail` (v1):** `null` or `{"schemaVersion":1,"events":[...]}` where each event is `type: "plan"` (reasoning, `replanReason`, planned steps) or `type: "step"` (`action`, `result`) in chronological order. Application code does not read older layouts.
+
 ---
 
 ## Auth (when enabled)

@@ -9,6 +9,7 @@ import pytest
 from fastapi import HTTPException
 from starlette.responses import JSONResponse
 
+import src.core.orchestration.planner as planner_mod
 from src.api.middleware.auth_quota import AuthQuotaMiddleware
 from src.api.routes import skills as skills_routes
 from src.api.routes import tasks as tasks_routes
@@ -214,15 +215,15 @@ async def test_run_planner_uses_db_skills_list(monkeypatch: pytest.MonkeyPatch) 
         captured["payload"] = __import__("json").loads(input)
         return _FakeRunResult()
 
-    monkeypatch.setattr(tasks_routes.Runner, "run", staticmethod(fake_runner_run))
+    monkeypatch.setattr(planner_mod.Runner, "run", staticmethod(fake_runner_run))
     monkeypatch.setattr(
-        tasks_routes,
+        planner_mod,
         "extract_runner_cost",
         lambda *_: InvocationCost(label="planner", total_tokens=0),
     )
-    monkeypatch.setattr(tasks_routes, "get_agent_instructions", lambda _k: "instructions")
-    monkeypatch.setattr(tasks_routes, "get_agent_model", lambda _k: "gpt-5-mini")
-    monkeypatch.setattr(tasks_routes, "get_agent_name", lambda _k: "planner")
+    monkeypatch.setattr(planner_mod, "get_agent_instructions", lambda _k: "instructions")
+    monkeypatch.setattr(planner_mod, "get_agent_model", lambda _k: "gpt-5-mini")
+    monkeypatch.setattr(planner_mod, "get_agent_name", lambda _k: "planner")
 
     row = _FakeTenantSkillRow("skill_a", _minimal_skill_def_dict("skill_a"))
     storage = MagicMock()
@@ -250,6 +251,8 @@ async def test_run_planner_uses_db_skills_list(monkeypatch: pytest.MonkeyPatch) 
     avail = captured["payload"]["availableSkills"]
     assert len(avail) == 1
     assert avail[0]["id"] == "skill_a"
+    assert avail[0]["kind"] == "simple"
+    assert avail[0]["capabilities"] == []
     storage.tenant_skills.list_for_tenant.assert_awaited_once_with("default")
 
 

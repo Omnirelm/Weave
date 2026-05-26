@@ -6,7 +6,10 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from fastapi import HTTPException
+from pydantic import ValidationError
 
+import src.core.orchestration.planner as planner_mod
+import src.core.orchestration.service as orchestration_service
 from src.api.routes import tasks
 from src.api.translators.tasks import RunTaskRequestDomain
 from src.core.base import InvocationCost
@@ -37,6 +40,23 @@ def _log_analysis_skill_row(*, require_logs: bool) -> SimpleNamespace:
         "output_schema": None,
     }
     return SimpleNamespace(skill_id="log_analysis", definition=definition)
+
+
+def _trace_analysis_skill_row() -> SimpleNamespace:
+    definition = {
+        "id": "trace_analysis",
+        "name": "Trace analysis",
+        "description": "d",
+        "instructions": "Analyze traces.",
+        "kind": "simple",
+        "capabilities": [],
+        "mcp_servers": [],
+        "steps": [],
+        "model": "gpt-4.1",
+        "input_schema": None,
+        "output_schema": None,
+    }
+    return SimpleNamespace(skill_id="trace_analysis", definition=definition)
 
 
 class _DummyRunner:
@@ -121,8 +141,13 @@ async def test_run_task_planner_only_flow(monkeypatch: pytest.MonkeyPatch) -> No
     async def fake_execute_plan_step(
         step: tasks.PlanStep,
         step_index: int,
-        **_: object,
+        *,
+        storage: object,
+        task: object,
+        runner: object,
+        prior_steps: object,
     ) -> tuple[StepResult, list[InvocationCost]]:
+        del storage, task, runner, prior_steps
         return (
             StepResult(
                 step_id=f"plan_step_{step_index}",
@@ -134,8 +159,8 @@ async def test_run_task_planner_only_flow(monkeypatch: pytest.MonkeyPatch) -> No
             [],
         )
 
-    monkeypatch.setattr(tasks, "_run_planner", fake_run_planner)
-    monkeypatch.setattr(tasks, "_execute_plan_step", fake_execute_plan_step)
+    monkeypatch.setattr(orchestration_service, "run_planner", fake_run_planner)
+    monkeypatch.setattr(orchestration_service, "execute_plan_step", fake_execute_plan_step)
 
     runner = _DummyRunner(SkillResult(success=True, output={"ignored": True}))
     req = _request_with_runner(runner)
@@ -149,7 +174,7 @@ async def test_run_task_planner_only_flow(monkeypatch: pytest.MonkeyPatch) -> No
     assert planner_called["value"] is True
     assert len(runner.calls) == 0
     assert response.success is True
-    assert response.output is None
+    assert response.output == {"ok": True}
     assert response.task_id is not None
     req.app.state.storage.task_runs.create.assert_awaited_once()
     persisted = req.app.state.storage.task_runs.create.await_args.args[0]
@@ -159,6 +184,26 @@ async def test_run_task_planner_only_flow(monkeypatch: pytest.MonkeyPatch) -> No
     assert persisted["objective"] == "do thing"
     assert persisted["cost"] is not None
     assert len(persisted["steps_completed"]) == 1
+    detail = persisted["step_execution_detail"]
+    assert isinstance(detail, dict)
+    assert detail["schemaVersion"] == 1
+    assert len(detail["events"]) == 2
+    assert detail["events"][0]["type"] == "plan"
+    assert detail["events"][1]["type"] == "step"
+
+
+def test_run_task_direct_mode_without_skill_id_rejected_at_validation() -> None:
+    with pytest.raises(ValidationError) as exc_info:
+        tasks.RunTaskRequest(
+            objective="do thing",
+            slug="default",
+            execution_mode="direct",
+        )
+    errs = exc_info.value.errors()
+    assert any(
+        e.get("type") == "value_error" and "skill_id" in str(e.get("msg", "")).lower()
+        for e in errs
+    )
 
 
 @pytest.mark.asyncio
@@ -171,7 +216,7 @@ async def test_run_task_direct_skill_success_skips_planner(
         planner_called["value"] = True
         raise AssertionError("Planner should not run on direct skill success")
 
-    monkeypatch.setattr(tasks, "_run_planner", fake_run_planner)
+    monkeypatch.setattr(orchestration_service, "run_planner", fake_run_planner)
 
     runner = _DummyRunner(SkillResult(success=True, output={"direct": True}))
     req = _request_with_runner(runner)
@@ -179,6 +224,7 @@ async def test_run_task_direct_skill_success_skips_planner(
         objective="investigate",
         slug="default",
         skill_id="log_analysis",
+        execution_mode="direct",
         input={"logs": [], "alert_id": "a-1"},
     )
 
@@ -198,6 +244,62 @@ async def test_run_task_direct_skill_success_skips_planner(
     assert first_call[1]["alert_id"] == "a-1"
     assert first_call[1]["objective"] == "investigate"
     assert first_call[2] == "default"
+    persist_detail = req.app.state.storage.task_runs.create.await_args.args[0][
+        "step_execution_detail"
+    ]
+    assert persist_detail["schemaVersion"] == 1
+    assert len(persist_detail["events"]) == 1
+    assert persist_detail["events"][0]["type"] == "step"
+
+
+@pytest.mark.asyncio
+async def test_run_task_orchestrate_with_skill_hint_still_calls_planner(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    planner_called = {"value": False}
+
+    async def fake_run_planner(**_: object) -> tuple[tasks.ExecutionPlan, InvocationCost]:
+        planner_called["value"] = True
+        return (
+            tasks.ExecutionPlan(
+                steps=[tasks.PlanStep(stepType="synthesize", objective="Summarize")],
+                reasoning="plan",
+            ),
+            InvocationCost(label="planner", total_tokens=1),
+        )
+
+    async def fake_execute_plan_step(
+        *_a: object,
+        **_k: object,
+    ) -> tuple[StepResult, list[InvocationCost]]:
+        return (
+            StepResult(
+                step_id="plan_step_0",
+                objective="Summarize",
+                success=True,
+                output={"from": "planner"},
+                error=None,
+            ),
+            [],
+        )
+
+    monkeypatch.setattr(orchestration_service, "run_planner", fake_run_planner)
+    monkeypatch.setattr(orchestration_service, "execute_plan_step", fake_execute_plan_step)
+
+    runner = _DummyRunner(SkillResult(success=True, output={"ignored": True}))
+    req = _request_with_runner(runner)
+    body = tasks.RunTaskRequest(
+        objective="investigate",
+        slug="default",
+        skill_id="log_analysis",
+        input={"logs": []},
+    )
+
+    response = await tasks.run_task(body, req)
+
+    assert planner_called["value"] is True
+    assert response.success is True
+    assert response.output == {"from": "planner"}
 
 
 @pytest.mark.asyncio
@@ -210,7 +312,7 @@ async def test_run_task_direct_skill_failure_returns_error_without_planner(
         planner_called["value"] = True
         raise AssertionError("Planner should not run on direct skill failure")
 
-    monkeypatch.setattr(tasks, "_run_planner", fake_run_planner)
+    monkeypatch.setattr(orchestration_service, "run_planner", fake_run_planner)
 
     runner = _DummyRunner(SkillResult(success=False, error="boom"))
     req = _request_with_runner(runner)
@@ -218,6 +320,7 @@ async def test_run_task_direct_skill_failure_returns_error_without_planner(
         objective="investigate",
         slug="default",
         skill_id="log_analysis",
+        execution_mode="direct",
         input={"logs": []},
     )
 
@@ -260,6 +363,7 @@ async def test_run_task_direct_skill_invalid_input_returns_422() -> None:
         objective="investigate",
         slug="default",
         skill_id="log_analysis",
+        execution_mode="direct",
         input={"alert_id": "only-this-no-logs"},
     )
     with pytest.raises(HTTPException) as exc_info:
@@ -285,15 +389,15 @@ async def test_run_planner_includes_skill_hint_and_input(
         captured["payload"] = json.loads(input)
         return _FakeRunResult()
 
-    monkeypatch.setattr(tasks.Runner, "run", staticmethod(fake_runner_run))
+    monkeypatch.setattr(planner_mod.Runner, "run", staticmethod(fake_runner_run))
     monkeypatch.setattr(
-        tasks,
+        planner_mod,
         "extract_runner_cost",
         lambda *_: InvocationCost(label="planner", total_tokens=0),
     )
-    monkeypatch.setattr(tasks, "get_agent_instructions", lambda _k: "instructions")
-    monkeypatch.setattr(tasks, "get_agent_model", lambda _k: "gpt-5-mini")
-    monkeypatch.setattr(tasks, "get_agent_name", lambda _k: "planner")
+    monkeypatch.setattr(planner_mod, "get_agent_instructions", lambda _k: "instructions")
+    monkeypatch.setattr(planner_mod, "get_agent_model", lambda _k: "gpt-5-mini")
+    monkeypatch.setattr(planner_mod, "get_agent_name", lambda _k: "planner")
 
     storage = MagicMock()
     storage.tenant_skills = MagicMock(list_for_tenant=AsyncMock(return_value=[]))
@@ -337,12 +441,17 @@ async def test_execute_plan_step_merges_task_input_into_skill_payload() -> None:
         skillId="trace_analysis",
         objective="Fetch trace and produce RCA",
     )
+    storage = MagicMock()
+    storage.tenant_skills = MagicMock(
+        get_for_tenant=AsyncMock(return_value=_trace_analysis_skill_row())
+    )
 
     await tasks._execute_plan_step(
         step,
         0,
         task=task,
         runner=runner,
+        storage=storage,
         prior_steps=[],
     )
 
@@ -353,3 +462,101 @@ async def test_execute_plan_step_merges_task_input_into_skill_payload() -> None:
     assert payload["objective"] == "Fetch trace and produce RCA"
     assert payload["task"] == "analyze trace latency"
     assert payload["prior_steps"] == []
+
+
+@pytest.mark.asyncio
+async def test_skills_to_planner_payload_includes_kind_and_capabilities() -> None:
+    from src.core.orchestration.catalog import skills_to_planner_payload
+    from src.core.skills import SkillDef
+
+    s = SkillDef.model_validate(
+        {
+            "id": "x",
+            "name": "n",
+            "description": "desc",
+            "instructions": "i",
+            "kind": "simple",
+            "capabilities": ["jaeger_fetch_trace"],
+            "mcp_servers": [],
+            "steps": [],
+            "model": "gpt-4.1",
+        }
+    )
+    payload = skills_to_planner_payload([s])[0]
+    assert payload["id"] == "x"
+    assert payload["kind"] == "simple"
+    assert payload["capabilities"] == ["jaeger_fetch_trace"]
+
+
+@pytest.mark.asyncio
+async def test_replan_triggered_when_skill_returns_needs_replan(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = {"planner": 0}
+
+    async def fake_run_planner(**kwargs: object) -> tuple[tasks.ExecutionPlan, InvocationCost]:
+        calls["planner"] += 1
+        if calls["planner"] == 1:
+            return (
+                tasks.ExecutionPlan(
+                    steps=[
+                        tasks.PlanStep(
+                            stepType="invoke_skill",
+                            skillId="log_analysis",
+                            objective="First",
+                        )
+                    ],
+                    reasoning="first plan",
+                ),
+                InvocationCost(label="planner", total_tokens=1),
+            )
+        return (
+            tasks.ExecutionPlan(
+                steps=[
+                    tasks.PlanStep(stepType="synthesize", objective="Recover"),
+                ],
+                reasoning="second plan",
+            ),
+            InvocationCost(label="planner", total_tokens=1),
+        )
+
+    async def fake_execute_plan_step(
+        step: tasks.PlanStep,
+        step_index: int,
+        **_: object,
+    ) -> tuple[StepResult, list[InvocationCost]]:
+        if step.step_type == "invoke_skill":
+            return (
+                StepResult(
+                    step_id=f"plan_step_{step_index}",
+                    objective=step.objective,
+                    success=True,
+                    output={"needs_replan": True, "replan_reason": "need more context"},
+                    error=None,
+                    invoked_skill_id=step.skill_id,
+                ),
+                [],
+            )
+        return (
+            StepResult(
+                step_id=f"plan_step_{step_index}",
+                objective=step.objective,
+                success=True,
+                output={"recovered": True},
+                error=None,
+            ),
+            [],
+        )
+
+    monkeypatch.setattr(orchestration_service, "run_planner", fake_run_planner)
+    monkeypatch.setattr(orchestration_service, "execute_plan_step", fake_execute_plan_step)
+
+    runner = _DummyRunner(SkillResult(success=True, output={}))
+    req = _request_with_runner(runner)
+    body = tasks.RunTaskRequest(objective="do", slug="default")
+
+    response = await tasks.run_task(body, req)
+
+    assert calls["planner"] == 2
+    assert response.success is True
+    assert response.output == {"recovered": True}

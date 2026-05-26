@@ -127,6 +127,7 @@ CREATE TABLE IF NOT EXISTS task_runs (
     reasoning               TEXT,
     error                   TEXT,
     steps_completed         JSONB         NOT NULL DEFAULT '[]'::jsonb,
+    -- step_execution_detail: v1 object {"schemaVersion":1,"events":[...]} or NULL (see README).
     step_execution_detail   JSONB,
     cost                    JSONB,
     started_at              TIMESTAMPTZ   NOT NULL,

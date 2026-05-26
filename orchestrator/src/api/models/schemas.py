@@ -8,9 +8,8 @@ from __future__ import annotations
 
 from typing import Annotated, Any, Union
 
-from pydantic import BaseModel, ConfigDict, Field
-from pydantic import AliasChoices
-from typing_extensions import Literal
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, model_validator
+from typing_extensions import Literal, Self
 
 from .models.click_house_v1 import ClickHouseV1
 from .models.code_repository_v1 import CodeRepositoryV1
@@ -29,7 +28,7 @@ from .models.loki_v1 import LokiV1
 from .models.mcp_server_v1 import McpServerV1
 from .models.open_search_v1 import OpenSearchV1
 from .models.page import Page
-from .models.run_task_request import RunTaskRequest
+from .models.run_task_request import RunTaskRequest as RunTaskRequestModel
 from .models.run_task_response import RunTaskResponse
 from .models.skill_resource import SkillResource
 from .models.skill_step_resource import SkillStepResource
@@ -41,6 +40,26 @@ from .models.tenant_v1 import TenantV1
 from .models.tool_v1 import ToolV1
 from .models.tools_page_response import ToolsPageResponse
 from .models.trace_source_v1 import TraceSourceV1
+
+
+class RunTaskRequest(RunTaskRequestModel):
+    """Generated RunTaskRequest plus orchestration execution mode."""
+
+    execution_mode: Literal["orchestrate", "direct"] = Field(
+        default="orchestrate",
+        description=(
+            "orchestrate (default): discover skills/tools, plan, execute, replan on failure. "
+            "direct: requires skill_id; runs that skill once (no planner; success or error only)."
+        ),
+        validation_alias=AliasChoices("executionMode", "execution_mode"),
+        serialization_alias="executionMode",
+    )
+
+    @model_validator(mode="after")
+    def direct_mode_requires_skill_id(self) -> Self:
+        if self.execution_mode == "direct" and not self.skill_id:
+            raise ValueError("skill_id is required when executionMode is 'direct'")
+        return self
 
 
 class CreateTenantRequest(TenantV1):

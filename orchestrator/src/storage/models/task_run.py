@@ -40,7 +40,11 @@ class TaskRun(Base, TimestampMixin):
     steps_completed: Mapped[Any] = mapped_column(
         JSONB, nullable=False, server_default=text("'[]'::jsonb")
     )
-    step_execution_detail: Mapped[Any | None] = mapped_column(JSONB, nullable=True)
+    step_execution_detail: Mapped[Any | None] = mapped_column(
+        JSONB,
+        nullable=True,
+        doc="v1 JSON: {schemaVersion:1, events:[plan|step,...]} or null",
+    )
     cost: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     finished_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

@@ -613,7 +613,11 @@ components:
           default: default
         skill_id:
           type: string
-          description: If skill id not is not specified Orchestrator prepares a plan and then executes it.
+          description: >
+            Optional planner hint and required for executionMode direct.
+            When omitted in orchestrate mode, the orchestrator plans and executes without a preferred skill.
+            When set in orchestrate mode, passed to the planner as a hint; response output prefers this skill's step when present.
+            When executionMode is direct, this field is required; the orchestrator runs that skill once with no planner.
           nullable: true
         input:
           type: object
@@ -623,6 +627,13 @@ components:
             Optional key-value payload. Surfaced to the planner as task.input when planning without skill_id.
             When skill_id is set, merged with orchestrator fields (objective, task, prior_steps) and validated
             against that skill's input_schema when present.
+        executionMode:
+          type: string
+          enum: [orchestrate, direct]
+          default: orchestrate
+          description: >
+            orchestrate (default): discover tenant skills/tools, plan, execute steps, and replan on failure.
+            direct: requires skill_id; runs that skill once with no planner (success returns that skill's output; failure returns an error with the recorded step, no replan).
       example:
         objective: Investigate checkout errors after deployment
         slug: default
@@ -686,9 +697,9 @@ components:
           additionalProperties: true
           nullable: true
           description: >
-            When the request includes skill_id, the structured result from the preferred skill
-            invocation (validated against that skill's output_schema when present). Omitted when
-            skill_id is not set or no matching successful skill step was found.
+            On success: direct mode returns the preferred skill output; orchestrate mode returns
+            the hinted skill's output when that skill ran successfully, otherwise the last successful
+            step's structured output (typically the final synthesize or skill step).
         steps_completed:
           type: array
           items:

@@ -16,6 +16,8 @@ class RunTaskRequestDomain:
     skill_id: str | None = None
     input: dict[str, Any] = field(default_factory=dict)
     tool_config: dict[str, Any] = field(default_factory=dict)
+    """orchestrate: plan+execute; direct: single run_skill for skill_id (API requires skill_id)."""
+    execution_mode: str = "orchestrate"
 
 
 def _to_json_object(value: object) -> dict[str, object] | None:
@@ -37,12 +39,16 @@ def run_task_request_to_domain(request: RunTaskRequest) -> RunTaskRequestDomain:
     skill_input: dict[str, Any] = {}
     if request.input is not None:
         skill_input = dict(request.input)
+    mode = request.execution_mode
+    if mode not in ("orchestrate", "direct"):
+        mode = "orchestrate"
     return RunTaskRequestDomain(
         task=request.objective,
         tenant_id=request.slug or "default",
         skill_id=request.skill_id,
         input=skill_input,
         tool_config={},
+        execution_mode=mode,
     )
 
 
@@ -55,15 +61,28 @@ def step_result_to_dto(step: StepResult) -> StepResultDto:
     )
 
 
+def step_bundles_from_execution_events(
+    execution_events: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Match step events to steps_completed order (action/result bundles only)."""
+    out: list[dict[str, Any]] = []
+    for e in execution_events:
+        if e.get("type") != "step":
+            continue
+        out.append({"action": e["action"], "result": e["result"]})
+    return out
+
+
 def extract_preferred_skill_output(
     task_domain: RunTaskRequestDomain,
     steps_completed: list[StepResult],
-    completed_steps_payload: list[dict[str, Any]],
+    execution_events: list[dict[str, Any]],
 ) -> dict[str, Any] | None:
     """Structured payload from the request's skill_id step, when present and successful."""
     if not task_domain.skill_id:
         return None
-    for step, bundle in zip(steps_completed, completed_steps_payload, strict=True):
+    bundles = step_bundles_from_execution_events(execution_events)
+    for step, bundle in zip(steps_completed, bundles, strict=True):
         action = bundle.get("action") or {}
         if action.get("skillId") != task_domain.skill_id:
             continue
@@ -71,6 +90,36 @@ def extract_preferred_skill_output(
             continue
         return serialize_task_output(step.output)
     return None
+
+
+def extract_final_orchestration_output(
+    steps_completed: list[StepResult],
+) -> dict[str, Any] | None:
+    """Last successful step with non-null output (orchestrated runs without preferred skill)."""
+    for step in reversed(steps_completed):
+        if step.success and step.output is not None:
+            return serialize_task_output(step.output)
+    return None
+
+
+def resolve_run_task_output(
+    *,
+    success: bool,
+    task_domain: RunTaskRequestDomain,
+    preferred_skill_output: dict[str, Any] | None,
+    steps_completed: list[StepResult],
+    execution_events: list[dict[str, Any]],
+) -> dict[str, Any] | None:
+    if not success:
+        return None
+    if preferred_skill_output is not None:
+        return preferred_skill_output
+    hinted = extract_preferred_skill_output(
+        task_domain, steps_completed, execution_events
+    )
+    if hinted is not None:
+        return hinted
+    return extract_final_orchestration_output(steps_completed)
 
 
 def invocation_cost_to_dto(cost: InvocationCost | None) -> InvocationCostDto | None:
