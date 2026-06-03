@@ -55,7 +55,7 @@ def resource_to_skill_def(resource: SkillResource) -> SkillDef:
             )
             for step in (resource.steps or [])
         ],
-        model=resource.model or "gpt-4.1",
+        model=resource.model or "gemini/gemini-2.0-flash",
         input_schema=resource.input_schema,
         output_schema=resource.output_schema,
     )

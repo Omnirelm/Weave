@@ -6,7 +6,7 @@ import logging
 from abc import ABC
 from typing import Any, ClassVar, Dict
 
-from agents.tool import function_tool
+from google.adk.tools import FunctionTool
 
 from src.core.tools.base import IntegrationTool
 from src.integrations.flavours import IntegrationType, TraceSourceFlavour
@@ -76,15 +76,14 @@ class JaegerFetchTraceTool(JaegerTool):
         logger.debug("jaeger_fetch_trace trace_id=%s", tid)
         return self._extractor.fetch_trace(tid)
 
-    def as_function_tool(self) -> Any:
+    def as_function_tool(self) -> FunctionTool:
         ext = self._extractor
 
-        @function_tool
         def jaeger_fetch_trace(trace_id: str) -> Dict[str, Any]:
             """Fetch a trace by hex trace ID from the tenant's Jaeger integration."""
             return ext.fetch_trace(trace_id.strip())
 
-        return jaeger_fetch_trace
+        return FunctionTool(func=jaeger_fetch_trace)
 
 
 class TempoFetchTraceTool(TempoTool):
@@ -103,12 +102,11 @@ class TempoFetchTraceTool(TempoTool):
         logger.debug("tempo_fetch_trace trace_id=%s", tid)
         return self._extractor.fetch_trace(tid)
 
-    def as_function_tool(self) -> Any:
+    def as_function_tool(self) -> FunctionTool:
         ext = self._extractor
 
-        @function_tool
         def tempo_fetch_trace(trace_id: str) -> Dict[str, Any]:
             """Fetch a trace by hex trace ID from the tenant's Tempo integration."""
             return ext.fetch_trace(trace_id.strip())
 
-        return tempo_fetch_trace
+        return FunctionTool(func=tempo_fetch_trace)

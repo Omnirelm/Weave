@@ -7,7 +7,7 @@ from __future__ import annotations
 from typing import Any, Dict, Optional
 
 import httpx
-from agents.tool import function_tool
+from google.adk.tools import FunctionTool
 
 from src.core.tools.base import BaseTool
 
@@ -49,10 +49,9 @@ class HttpTool(BaseTool):
             "text": response.text,
         }
 
-    def as_function_tool(self) -> Any:
+    def as_function_tool(self) -> FunctionTool:
         timeout = self._timeout
 
-        @function_tool
         def http_request(
             url: str,
             method: str = "GET",
@@ -80,4 +79,4 @@ class HttpTool(BaseTool):
                 "text": response.text,
             }
 
-        return http_request
+        return FunctionTool(func=http_request)

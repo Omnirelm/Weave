@@ -104,7 +104,7 @@ CREATE TABLE IF NOT EXISTS tenant_skills (
     skill_id     VARCHAR(128)  NOT NULL,
     kind         VARCHAR(32)   NOT NULL CHECK (kind IN ('simple', 'composed')),
     name         VARCHAR(255)  NOT NULL,
-    model        VARCHAR(128)  NOT NULL DEFAULT 'gpt-4.1',
+    model        VARCHAR(128)  NOT NULL DEFAULT 'gemini/gemini-2.0-flash',
     definition   JSONB         NOT NULL,
     created_at   TIMESTAMPTZ   NOT NULL DEFAULT now(),
     updated_at   TIMESTAMPTZ   NOT NULL DEFAULT now(),

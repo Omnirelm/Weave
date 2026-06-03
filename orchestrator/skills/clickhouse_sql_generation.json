@@ -10,7 +10,7 @@
     "clickhouse_clean_query_string",
     "clickhouse_validate_query"
   ],
-  "model": "gpt-5-mini",
+  "model": "gemini/gemini-2.0-flash",
   "input_schema": {
     "type": "object",
     "properties": {

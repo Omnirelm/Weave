@@ -9,7 +9,7 @@
     "loki_clean_query_string",
     "loki_validate_query"
   ],
-  "model": "gpt-5-mini",
+  "model": "gemini/gemini-2.0-flash",
   "input_schema": {
     "type": "object",
     "properties": {

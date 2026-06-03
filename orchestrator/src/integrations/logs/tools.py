@@ -19,7 +19,7 @@ import logging
 from abc import ABC
 from typing import Any, ClassVar, List
 
-from agents.tool import function_tool
+from google.adk.tools import FunctionTool
 
 from src.core.tools.base import IntegrationTool
 from src.integrations.flavours import IntegrationType, LogSourceFlavour
@@ -106,15 +106,14 @@ class GetLabelNamesTool(LokiTool):
             raise TypeError("loki_get_label_names takes no arguments")
         return self._extractor.get_label_names()
 
-    def as_function_tool(self) -> Any:
+    def as_function_tool(self) -> FunctionTool:
         ext = self._extractor
 
-        @function_tool
         def loki_get_label_names() -> List[str]:
             """Get available label names from Loki."""
             return ext.get_label_names()
 
-        return loki_get_label_names
+        return FunctionTool(func=loki_get_label_names)
 
 
 class GetLabelValuesTool(LokiTool):
@@ -127,10 +126,9 @@ class GetLabelValuesTool(LokiTool):
             raise TypeError("loki_get_label_values requires label_name")
         return self._extractor.get_label_values(label_name)
 
-    def as_function_tool(self) -> Any:
+    def as_function_tool(self) -> FunctionTool:
         ext = self._extractor
 
-        @function_tool
         def loki_get_label_values(label_name: str) -> List[str]:
             """Get available values for a specific label name from Loki.
 
@@ -139,7 +137,7 @@ class GetLabelValuesTool(LokiTool):
             """
             return ext.get_label_values(label_name)
 
-        return loki_get_label_values
+        return FunctionTool(func=loki_get_label_values)
 
 
 class LokiValidateQueryTool(LokiTool):
@@ -158,10 +156,9 @@ class LokiValidateQueryTool(LokiTool):
         logger.info("Result: %d logs fetched", len(result))
         return result
 
-    def as_function_tool(self) -> Any:
+    def as_function_tool(self) -> FunctionTool:
         ext = self._extractor
 
-        @function_tool
         def loki_validate_query(
             query: str,
             start: datetime.datetime | None = None,
@@ -174,7 +171,7 @@ class LokiValidateQueryTool(LokiTool):
             logger.info("Result: %d logs fetched", len(result))
             return result
 
-        return loki_validate_query
+        return FunctionTool(func=loki_validate_query)
 
 
 class LokiFetchLogsTool(LokiTool):
@@ -193,10 +190,9 @@ class LokiFetchLogsTool(LokiTool):
         logger.info("Result: %d logs fetched", len(result))
         return result
 
-    def as_function_tool(self) -> Any:
+    def as_function_tool(self) -> FunctionTool:
         ext = self._extractor
 
-        @function_tool
         def loki_fetch_logs(
             query: str,
             start: datetime.datetime | None = None,
@@ -209,7 +205,7 @@ class LokiFetchLogsTool(LokiTool):
             logger.info("Result: %d logs fetched", len(result))
             return result
 
-        return loki_fetch_logs
+        return FunctionTool(func=loki_fetch_logs)
 
 
 class LokiCleanQueryStringTool(LokiTool):
@@ -225,15 +221,14 @@ class LokiCleanQueryStringTool(LokiTool):
             raise TypeError("loki_clean_query_string requires query")
         return self._extractor._clean_query_string(query)
 
-    def as_function_tool(self) -> Any:
+    def as_function_tool(self) -> FunctionTool:
         ext = self._extractor
 
-        @function_tool
         def loki_clean_query_string(query: str) -> str:
             """Clean the query string by removing markdown code blocks, newlines, and extra whitespace."""
             return ext._clean_query_string(query)
 
-        return loki_clean_query_string
+        return FunctionTool(func=loki_clean_query_string)
 
 
 # ---------------------------------------------------------------------------
@@ -250,15 +245,14 @@ class OpenSearchGetFieldNamesTool(OpenSearchTool):
             raise TypeError("opensearch_get_field_names requires index")
         return self._extractor.get_field_names(index=index)
 
-    def as_function_tool(self) -> Any:
+    def as_function_tool(self) -> FunctionTool:
         ext = self._extractor
 
-        @function_tool
         def opensearch_get_field_names(index: str) -> List[str]:
             """Get available field names from OpenSearch."""
             return ext.get_field_names(index=index)
 
-        return opensearch_get_field_names
+        return FunctionTool(func=opensearch_get_field_names)
 
 
 class OpenSearchValidateQueryTool(OpenSearchTool):
@@ -277,10 +271,9 @@ class OpenSearchValidateQueryTool(OpenSearchTool):
         )
         return result
 
-    def as_function_tool(self) -> Any:
+    def as_function_tool(self) -> FunctionTool:
         ext = self._extractor
 
-        @function_tool
         def opensearch_validate_query(query: str) -> List[LogEntry]:
             """Fetch logs from OpenSearch using a query."""
             result = ext.fetch_logs(query)
@@ -291,7 +284,7 @@ class OpenSearchValidateQueryTool(OpenSearchTool):
             )
             return result
 
-        return opensearch_validate_query
+        return FunctionTool(func=opensearch_validate_query)
 
 
 class OpenSearchFetchLogsTool(OpenSearchTool):
@@ -313,10 +306,9 @@ class OpenSearchFetchLogsTool(OpenSearchTool):
         )
         return result
 
-    def as_function_tool(self) -> Any:
+    def as_function_tool(self) -> FunctionTool:
         ext = self._extractor
 
-        @function_tool
         def opensearch_fetch_logs(
             query: str,
             start: datetime.datetime | None = None,
@@ -332,7 +324,7 @@ class OpenSearchFetchLogsTool(OpenSearchTool):
             )
             return result
 
-        return opensearch_fetch_logs
+        return FunctionTool(func=opensearch_fetch_logs)
 
 
 class OpenSearchCleanQueryStringTool(OpenSearchTool):
@@ -348,15 +340,14 @@ class OpenSearchCleanQueryStringTool(OpenSearchTool):
             raise TypeError("opensearch_clean_query_string requires query")
         return self._extractor._clean_query_string(query)
 
-    def as_function_tool(self) -> Any:
+    def as_function_tool(self) -> FunctionTool:
         ext = self._extractor
 
-        @function_tool
         def opensearch_clean_query_string(query: str) -> str:
             """Clean the query string by removing markdown code blocks, newlines, and extra whitespace."""
             return ext._clean_query_string(query)
 
-        return opensearch_clean_query_string
+        return FunctionTool(func=opensearch_clean_query_string)
 
 
 class OpenSearchGetIndexNameTool(OpenSearchTool):
@@ -368,15 +359,14 @@ class OpenSearchGetIndexNameTool(OpenSearchTool):
             raise TypeError("opensearch_get_index_name takes no arguments")
         return self._extractor.get_index_name()
 
-    def as_function_tool(self) -> Any:
+    def as_function_tool(self) -> FunctionTool:
         ext = self._extractor
 
-        @function_tool
         def opensearch_get_index_name() -> str:
             """Get available index names from OpenSearch."""
             return ext.get_index_name()
 
-        return opensearch_get_index_name
+        return FunctionTool(func=opensearch_get_index_name)
 
 
 # ---------------------------------------------------------------------------
@@ -392,15 +382,14 @@ class ClickHouseGetTableNameTool(ClickHouseTool):
             raise TypeError("clickhouse_get_table_name takes no arguments")
         return self._extractor.get_index_name()
 
-    def as_function_tool(self) -> Any:
+    def as_function_tool(self) -> FunctionTool:
         ext = self._extractor
 
-        @function_tool
         def clickhouse_get_table_name() -> str:
             """Get the fully-qualified ClickHouse table name for querying logs."""
             return ext.get_index_name()
 
-        return clickhouse_get_table_name
+        return FunctionTool(func=clickhouse_get_table_name)
 
 
 class ClickHouseGetColumnNamesTool(ClickHouseTool):
@@ -412,15 +401,14 @@ class ClickHouseGetColumnNamesTool(ClickHouseTool):
             raise TypeError("clickhouse_get_column_names takes no arguments")
         return self._extractor.get_field_names()
 
-    def as_function_tool(self) -> Any:
+    def as_function_tool(self) -> FunctionTool:
         ext = self._extractor
 
-        @function_tool
         def clickhouse_get_column_names() -> List[str]:
             """Get available column names from the ClickHouse log table."""
             return ext.get_field_names()
 
-        return clickhouse_get_column_names
+        return FunctionTool(func=clickhouse_get_column_names)
 
 
 class ClickHouseValidateQueryTool(ClickHouseTool):
@@ -436,10 +424,9 @@ class ClickHouseValidateQueryTool(ClickHouseTool):
         logger.info("Result: %d logs fetched", len(result))
         return result
 
-    def as_function_tool(self) -> Any:
+    def as_function_tool(self) -> FunctionTool:
         ext = self._extractor
 
-        @function_tool
         def clickhouse_validate_query(query: str) -> List[LogEntry]:
             """Execute a SQL SELECT query against ClickHouse and return log entries."""
             logger.info("Validating ClickHouse SQL query: %s", query)
@@ -447,7 +434,7 @@ class ClickHouseValidateQueryTool(ClickHouseTool):
             logger.info("Result: %d logs fetched", len(result))
             return result
 
-        return clickhouse_validate_query
+        return FunctionTool(func=clickhouse_validate_query)
 
 
 class ClickHouseFetchLogsTool(ClickHouseTool):
@@ -466,10 +453,9 @@ class ClickHouseFetchLogsTool(ClickHouseTool):
         logger.info("Result: %d logs fetched", len(result))
         return result
 
-    def as_function_tool(self) -> Any:
+    def as_function_tool(self) -> FunctionTool:
         ext = self._extractor
 
-        @function_tool
         def clickhouse_fetch_logs(
             query: str,
             start: datetime.datetime | None = None,
@@ -485,7 +471,7 @@ class ClickHouseFetchLogsTool(ClickHouseTool):
             logger.info("Result: %d logs fetched", len(result))
             return result
 
-        return clickhouse_fetch_logs
+        return FunctionTool(func=clickhouse_fetch_logs)
 
 
 class ClickHouseCleanQueryStringTool(ClickHouseTool):
@@ -501,12 +487,11 @@ class ClickHouseCleanQueryStringTool(ClickHouseTool):
             raise TypeError("clickhouse_clean_query_string requires query")
         return self._extractor._clean_query_string(query)
 
-    def as_function_tool(self) -> Any:
+    def as_function_tool(self) -> FunctionTool:
         ext = self._extractor
 
-        @function_tool
         def clickhouse_clean_query_string(query: str) -> str:
             """Clean the query string by removing markdown code blocks, newlines, and extra whitespace."""
             return ext._clean_query_string(query)
 
-        return clickhouse_clean_query_string
+        return FunctionTool(func=clickhouse_clean_query_string)

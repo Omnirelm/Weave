@@ -10,7 +10,7 @@
     "opensearch_clean_query_string",
     "opensearch_validate_query"
   ],
-  "model": "gpt-5.4-mini",
+  "model": "gemini/gemini-2.0-flash",
   "input_schema": {
     "type": "object",
     "properties": {

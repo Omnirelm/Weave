@@ -9,8 +9,6 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
 
-from agents import Runner
-
 from src.api.models.schemas import RunTaskRequest, RunTaskResponse
 from src.api.translators.tasks import RunTaskRequestDomain, run_task_request_to_domain
 from src.core.orchestration.execution_detail import execution_detail_for_persist

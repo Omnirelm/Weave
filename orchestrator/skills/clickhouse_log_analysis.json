@@ -4,7 +4,7 @@
   "description": "Generate a ClickHouse SQL query for a service, fetch logs from ClickHouse, and produce a root-cause analysis.",
   "instructions": "Composed skill: runs clickhouse_sql_generation then fetch_and_analyze. Behavior is defined by those steps and their child skills; this field is required by the Skill API for all skills.",
   "kind": "composed",
-  "model": "gpt-5.1",
+  "model": "gemini/gemini-2.0-flash",
   "steps": [
     {
       "id": "query_generation",

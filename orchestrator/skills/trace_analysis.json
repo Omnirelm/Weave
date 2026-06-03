@@ -8,7 +8,7 @@
     "jaeger_fetch_trace",
     "tempo_fetch_trace"
   ],
-  "model": "gpt-5.1",
+  "model": "gemini/gemini-2.0-flash",
   "input_schema": {
     "type": "object",
     "properties": {

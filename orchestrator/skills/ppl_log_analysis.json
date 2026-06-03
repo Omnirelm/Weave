@@ -3,7 +3,7 @@
   "name": "PPL Log Analysis",
   "description": "Generate a PPL query for a service, fetch logs from OpenSearch, and produce a root-cause analysis with log interpretation guidance.",
   "kind": "composed",
-  "model": "gpt-4.1",
+  "model": "gemini/gemini-2.0-flash",
   "steps": [
     {
       "id": "query_generation",

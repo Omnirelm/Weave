@@ -31,8 +31,8 @@ class TenantSkill(Base, TimestampMixin):
     model: Mapped[str] = mapped_column(
         String(128),
         nullable=False,
-        default="gpt-4.1",
-        server_default=text("'gpt-4.1'"),
+        default="gemini/gemini-2.0-flash",
+        server_default=text("'gemini/gemini-2.0-flash'"),
     )
     definition: Mapped[dict[str, Any]] = mapped_column(
         JSONB,

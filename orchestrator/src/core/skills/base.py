@@ -35,13 +35,6 @@ class StepResult(BaseModel):
     invoked_tool_id: str | None = None
 
 
-class SkillRunContext(BaseModel):
-    """Execution-time accumulator. This object is not persisted."""
-
-    original_input: dict[str, Any]
-    steps_completed: list[StepResult] = Field(default_factory=list)
-
-
 class SkillDef(BaseModel):
     id: str
     name: str
@@ -51,7 +44,7 @@ class SkillDef(BaseModel):
     capabilities: list[str] = Field(default_factory=list)
     mcp_servers: list[str] = Field(default_factory=list)
     steps: list[SkillStep] = Field(default_factory=list)
-    model: str = "gpt-4.1"
+    model: str = "gemini/gemini-2.0-flash"
     input_schema: dict[str, Any] | None = None
     output_schema: dict[str, Any] | None = Field(
         default=None,

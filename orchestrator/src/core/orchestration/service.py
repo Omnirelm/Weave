@@ -6,6 +6,11 @@ import logging
 import uuid
 from typing import Any, Literal
 
+from google.adk.agents import LlmAgent
+from google.adk.models.lite_llm import LiteLlm
+from google.adk.runners import Runner
+from google.adk.sessions.session import Session
+
 from src.api.models.schemas import RunTaskResponse
 from src.api.translators.tasks import (
     RunTaskRequestDomain,
@@ -13,10 +18,12 @@ from src.api.translators.tasks import (
     resolve_run_task_output,
     serialize_task_output,
 )
+from src.core.adk.session import build_runner, create_task_session
 from src.core.base import InvocationCost
-from src.core.orchestration.execution_detail import (
-    append_plan_event,
-    completed_steps_for_planner,
+from src.core.orchestration.execution_detail import append_plan_event
+from src.core.orchestration.session_state import (
+    seed_task_session_state,
+    write_plan_step_summary,
 )
 from src.core.orchestration.executor import execute_plan_step
 from src.core.orchestration.models import (
@@ -34,6 +41,18 @@ from src.storage.interface import StorageGateway
 logger = logging.getLogger(__name__)
 
 _MAX_REPLANS = 2
+_TASK_ROOT_MODEL = "gemini/gemini-2.0-flash"
+
+
+async def _create_task_adk_context() -> tuple[Runner, Session]:
+    root = LlmAgent(
+        name="weave_task_root",
+        model=LiteLlm(model=_TASK_ROOT_MODEL),
+        instruction=".",
+    )
+    adk_runner = build_runner(root)
+    session = await create_task_session(adk_runner)
+    return adk_runner, session
 
 
 def _output_requests_replan(output: Any) -> bool:
@@ -56,7 +75,12 @@ def _replan_message_from_output(output: Any) -> str:
 
 
 async def _run_direct_skill(
-    task: RunTaskRequestDomain, runner: SkillRunner, state: TaskRunState
+    task: RunTaskRequestDomain,
+    runner: SkillRunner,
+    state: TaskRunState,
+    *,
+    adk_runner: Runner,
+    session: Session,
 ) -> Literal["succeeded", "failed"]:
     """Direct mode only: run the requested skill once; no planner."""
     if not task.skill_id:
@@ -71,6 +95,8 @@ async def _run_direct_skill(
         task.skill_id,
         skill_input_payload(task),
         task.tenant_id,
+        runner=adk_runner,
+        session=session,
     )
     if direct_result.cost is not None:
         state.cost_children.append(direct_result.cost)
@@ -112,6 +138,8 @@ async def _run_planned_iteration(
     runner: SkillRunner,
     storage: StorageGateway,
     state: TaskRunState,
+    adk_runner: Runner,
+    session: Session,
 ) -> bool:
     """Execute one generated plan. Returns True when plan failed or must replan."""
     plan_failed = False
@@ -125,9 +153,12 @@ async def _run_planned_iteration(
             task=task,
             runner=runner,
             storage=storage,
+            adk_runner=adk_runner,
+            session=session,
             prior_steps=list(state.steps_completed),
         )
         state.cost_children.extend(step_costs)
+        write_plan_step_summary(session, global_idx, sr)
         record_step(
             step=step,
             step_result=sr,
@@ -200,9 +231,13 @@ async def execute_run_task(
 ) -> tuple[RunTaskResponse, TaskRunState]:
     """Run task (direct or orchestrated) and return HTTP-ready response + state for persistence."""
     state = TaskRunState()
+    adk_runner, session = await _create_task_adk_context()
+    seed_task_session_state(session, domain_body)
 
     if domain_body.execution_mode == "direct":
-        direct_skill_status = await _run_direct_skill(domain_body, runner, state)
+        direct_skill_status = await _run_direct_skill(
+            domain_body, runner, state, adk_runner=adk_runner, session=session
+        )
         if direct_skill_status == "succeeded":
             return _finalize_success(state, domain_body, task_id=task_id), state
         if direct_skill_status == "failed":
@@ -230,7 +265,8 @@ async def execute_run_task(
                 task=domain_body,
                 storage=storage,
                 runner=runner,
-                completed_steps=completed_steps_for_planner(state.execution_events),
+                adk_runner=adk_runner,
+                session=session,
                 replan_reason=replan_reason,
             )
         except Exception as exc:  # noqa: BLE001
@@ -264,6 +300,8 @@ async def execute_run_task(
             runner=runner,
             storage=storage,
             state=state,
+            adk_runner=adk_runner,
+            session=session,
         )
 
         if not plan_failed:

@@ -204,25 +204,18 @@ async def test_skill_max_cap_allows_below_limit() -> None:
 async def test_run_planner_uses_db_skills_list(monkeypatch: pytest.MonkeyPatch) -> None:
     captured: dict[str, object] = {}
 
-    class _FakeRunResult:
-        def final_output_as(
-            self, _model: type[tasks_routes.ExecutionPlan], _strict: bool
-        ) -> tasks_routes.ExecutionPlan:
-            return tasks_routes.ExecutionPlan(steps=[], reasoning="ok")
+    async def fake_run_agent_in_session(
+        _runner: object, _session: object, _agent: object, message: str, **_: object
+    ) -> tuple[str, int]:
+        captured["payload"] = __import__("json").loads(message)
+        return (
+            __import__("json").dumps({"steps": [], "reasoning": "ok"}),
+            0,
+        )
 
-    async def fake_runner_run(*, starting_agent: object, input: str) -> _FakeRunResult:
-        del starting_agent
-        captured["payload"] = __import__("json").loads(input)
-        return _FakeRunResult()
-
-    monkeypatch.setattr(planner_mod.Runner, "run", staticmethod(fake_runner_run))
-    monkeypatch.setattr(
-        planner_mod,
-        "extract_runner_cost",
-        lambda *_: InvocationCost(label="planner", total_tokens=0),
-    )
+    monkeypatch.setattr(planner_mod, "run_agent_in_session", fake_run_agent_in_session)
     monkeypatch.setattr(planner_mod, "get_agent_instructions", lambda _k: "instructions")
-    monkeypatch.setattr(planner_mod, "get_agent_model", lambda _k: "gpt-5-mini")
+    monkeypatch.setattr(planner_mod, "get_agent_model", lambda _k: "gemini/gemini-2.0-flash")
     monkeypatch.setattr(planner_mod, "get_agent_name", lambda _k: "planner")
 
     row = _FakeTenantSkillRow("skill_a", _minimal_skill_def_dict("skill_a"))
@@ -244,7 +237,8 @@ async def test_run_planner_uses_db_skills_list(monkeypatch: pytest.MonkeyPatch) 
         task=task,
         storage=storage,
         runner=runner,
-        completed_steps=[],
+        adk_runner=MagicMock(),
+        session=SimpleNamespace(state={}),
         replan_reason=None,
     )
 

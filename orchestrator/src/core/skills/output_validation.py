@@ -6,10 +6,13 @@ import json
 from typing import Any
 
 import jsonschema
-from agents.exceptions import ModelBehaviorError
 from jsonschema import ValidationError
 
 from src.core.skills.base import SkillDef
+
+
+class SkillOutputError(ValueError):
+    """Raised when skill LLM output is not valid JSON or fails output_schema validation."""
 
 
 def validate_skill_output(skill: SkillDef, instance: Any) -> None:
@@ -28,13 +31,13 @@ def validate_skill_output(skill: SkillDef, instance: Any) -> None:
 
 
 def validate_skill_output_or_model_error(skill: SkillDef, json_str: str) -> Any:
-    """Parse JSON and validate against ``skill.output_schema``; raise ``ModelBehaviorError`` on failure."""
+    """Parse JSON and validate against ``skill.output_schema``; raise ``SkillOutputError`` on failure."""
     try:
         parsed = json.loads(json_str)
     except json.JSONDecodeError as e:
-        raise ModelBehaviorError(f"Skill output is not valid JSON: {e}") from e
+        raise SkillOutputError(f"Skill output is not valid JSON: {e}") from e
     try:
         validate_skill_output(skill, parsed)
     except ValueError as e:
-        raise ModelBehaviorError(str(e)) from e
+        raise SkillOutputError(str(e)) from e
     return parsed

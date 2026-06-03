@@ -1,19 +1,19 @@
-"""MCP server registry: register by name and build SDK server instances."""
+"""MCP server registry: register by name and build ADK McpToolset instances."""
 
 from __future__ import annotations
 
 import logging
 from collections.abc import Mapping, Sequence
-from typing import Any
-
-from agents.mcp import MCPServerSse, MCPServerStdio, MCPServerStreamableHttp
-from agents.mcp.server import (
-    MCPServerSseParams,
-    MCPServerStdioParams,
-    MCPServerStreamableHttpParams,
-)
-from pydantic import BaseModel, ConfigDict, Field, model_validator
 from typing import Literal
+
+from google.adk.tools.mcp_tool import McpToolset
+from google.adk.tools.mcp_tool.mcp_session_manager import (
+    SseConnectionParams,
+    StdioConnectionParams,
+    StreamableHTTPConnectionParams,
+)
+from mcp import StdioServerParameters
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 logger = logging.getLogger(__name__)
 
@@ -50,10 +50,8 @@ class McpConfig(BaseModel):
     servers: dict[str, McpServerConfig] = Field(default_factory=dict)
 
 
-
-
 class McpServerRegistry:
-    """Stores enabled MCP server configs and builds runtime server instances."""
+    """Stores enabled MCP server configs and builds runtime McpToolset instances."""
 
     def __init__(self, configs: Mapping[str, McpServerConfig] | None = None) -> None:
         self._registry: dict[str, McpServerConfig] = {}
@@ -103,44 +101,54 @@ class McpServerRegistry:
             resolved.append(config)
         return resolved
 
-    def build_server(self, config: McpServerConfig) -> Any:
-        """Build one OpenAI Agents SDK MCP server instance from config."""
+    def build_toolset(self, config: McpServerConfig) -> McpToolset:
+        """Build one ADK McpToolset from config."""
         if config.type == "stdio":
-            params: MCPServerStdioParams = {"command": config.command or ""}
-            if config.args:
-                params["args"] = list(config.args)
-            if config.env:
-                env = {k: v for k, v in config.env.items() if v}
-                if env:
-                    params["env"] = env
-            return MCPServerStdio(
-                params,
-                name=config.name,
-                cache_tools_list=config.cache_tools_list,
+            env = {k: v for k, v in config.env.items() if v} or None
+            server_params = StdioServerParameters(
+                command=config.command or "",
+                args=list(config.args) if config.args else [],
+                env=env,
             )
+            timeout = config.timeout if config.timeout is not None else 5.0
+            connection_params = StdioConnectionParams(
+                server_params=server_params,
+                timeout=timeout,
+            )
+            return McpToolset(connection_params=connection_params)
 
         if config.type == "streamable_http":
-            params_h: MCPServerStreamableHttpParams = {"url": config.url or ""}
-            if config.headers:
-                params_h["headers"] = dict(config.headers)
+            headers = dict(config.headers) if config.headers else None
+            kwargs: dict = {
+                "url": config.url or "",
+                "headers": headers,
+            }
             if config.timeout is not None:
-                params_h["timeout"] = config.timeout
+                kwargs["timeout"] = config.timeout
             if config.sse_read_timeout is not None:
-                params_h["sse_read_timeout"] = config.sse_read_timeout
-            return MCPServerStreamableHttp(
-                params_h,
-                name=config.name,
-                cache_tools_list=config.cache_tools_list,
+                kwargs["sse_read_timeout"] = config.sse_read_timeout
+            return McpToolset(
+                connection_params=StreamableHTTPConnectionParams(**kwargs)
             )
 
-        params_s: MCPServerSseParams = {"url": config.url or ""}
-        if config.headers:
-            params_s["headers"] = dict(config.headers)
-        return MCPServerSse(
-            params_s,
-            name=config.name,
-            cache_tools_list=config.cache_tools_list,
-        )
+        headers = dict(config.headers) if config.headers else None
+        kwargs = {
+            "url": config.url or "",
+            "headers": headers,
+        }
+        if config.timeout is not None:
+            kwargs["timeout"] = config.timeout
+        if config.sse_read_timeout is not None:
+            kwargs["sse_read_timeout"] = config.sse_read_timeout
+        return McpToolset(connection_params=SseConnectionParams(**kwargs))
 
-    def build_servers(self, names: Sequence[str]) -> list[Any]:
-        return [self.build_server(config) for config in self.resolve(names)]
+    def build_toolsets(self, names: Sequence[str]) -> list[McpToolset]:
+        return [self.build_toolset(config) for config in self.resolve(names)]
+
+    def build_server(self, config: McpServerConfig) -> McpToolset:
+        """Backward-compatible alias for :meth:`build_toolset`."""
+        return self.build_toolset(config)
+
+    def build_servers(self, names: Sequence[str]) -> list[McpToolset]:
+        """Backward-compatible alias for :meth:`build_toolsets`."""
+        return self.build_toolsets(names)

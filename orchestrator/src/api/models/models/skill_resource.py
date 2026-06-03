@@ -36,7 +36,7 @@ class SkillResource(BaseModel):
     capabilities: Optional[List[StrictStr]] = None
     mcp_servers: Optional[List[StrictStr]] = None
     steps: Optional[List[SkillStepResource]] = None
-    model: Optional[StrictStr] = 'gpt-5.1'
+    model: Optional[StrictStr] = 'gemini/gemini-2.0-flash'
     input_schema: Optional[Dict[str, Any]] = None
     output_schema: Optional[Dict[str, Any]] = None
     __properties: ClassVar[List[str]] = ["id", "name", "description", "instructions", "kind", "capabilities", "mcp_servers", "steps", "model", "input_schema", "output_schema"]
@@ -127,7 +127,7 @@ class SkillResource(BaseModel):
             "capabilities": obj.get("capabilities"),
             "mcp_servers": obj.get("mcp_servers"),
             "steps": [SkillStepResource.from_dict(_item) for _item in obj["steps"]] if obj.get("steps") is not None else None,
-            "model": obj.get("model") if obj.get("model") is not None else 'gpt-5.1',
+            "model": obj.get("model") if obj.get("model") is not None else 'gemini/gemini-2.0-flash',
             "input_schema": obj.get("input_schema"),
             "output_schema": obj.get("output_schema")
         })

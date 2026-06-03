@@ -6,18 +6,32 @@ import json
 import logging
 from typing import Any
 
-from agents import Agent, Runner, RunResult
+from google.adk.agents import LlmAgent
+from google.adk.models.lite_llm import LiteLlm
+from google.adk.runners import Runner
+from google.adk.sessions.session import Session
 
 from src.agent_factories.instructions import get_agent_model
 from src.api.translators.tasks import RunTaskRequestDomain
-from src.core.base import InvocationCost, extract_runner_cost
+from src.core.adk.session import run_agent_in_session
+from src.core.base import InvocationCost
 from src.core.orchestration.models import PlanStep, skill_input_payload
+from src.core.orchestration.session_state import (
+    plan_step_summary_key,
+    prior_summary_keys,
+)
 from src.core.skills import SkillDef, SkillRunner, StepResult
 from src.core.skills.input_validation import validate_skill_instance
 from src.core.tools.base import ToolNotFoundError
 from src.storage.interface import StorageGateway
 
 logger = logging.getLogger(__name__)
+
+
+def _write_tool_summary(session: Session, step_index: int, output: Any) -> None:
+    session.state[plan_step_summary_key(step_index)] = json.dumps(
+        {"output": output, "success": True}
+    )
 
 
 async def execute_plan_step(
@@ -27,6 +41,8 @@ async def execute_plan_step(
     task: RunTaskRequestDomain,
     runner: SkillRunner,
     storage: StorageGateway,
+    adk_runner: Runner,
+    session: Session,
     prior_steps: list[StepResult],
 ) -> tuple[StepResult, list[InvocationCost]]:
     step_id = f"plan_step_{step_index}"
@@ -82,6 +98,8 @@ async def execute_plan_step(
             step.skill_id,
             input_payload,
             task.tenant_id,
+            runner=adk_runner,
+            session=session,
         )
         extra_costs = [sr.cost] if sr.cost is not None else []
         return (
@@ -132,6 +150,7 @@ async def execute_plan_step(
                 ),
                 [],
             )
+        _write_tool_summary(session, step_index, out)
         return (
             StepResult(
                 step_id=step_id,
@@ -150,34 +169,47 @@ async def execute_plan_step(
             ],
         )
 
-    # synthesize
+    summary_refs = " ".join(f"{{{k}}}" for k in prior_summary_keys(session))
     instructions = (
         f"{step.objective}\n\n"
-        "You synthesize a concise answer from the JSON input: it contains the user task "
-        "and prior_steps (orchestration results). Be factual."
+        "You synthesize a concise answer for the user from prior orchestration step results.\n"
+        "Prior step summaries are in session state (compact JSON):\n"
+        f"{summary_refs or '(no prior steps yet)'}\n"
+        "Task context: {task}. Original request input: {original_input}.\n"
+        "Be factual; cite what was observed. If data is missing, say so."
     )
-    agent = Agent(
+    agent = LlmAgent(
         name="task_inline_synthesize",
-        model=get_agent_model("task_synthesizer"),
-        instructions=instructions,
+        model=LiteLlm(model=get_agent_model("task_synthesizer")),
+        instruction=instructions,
         tools=[],
-        output_type=None,
+        output_key=plan_step_summary_key(step_index),
+        include_contents="none",
     )
     synth_input = {
         "task": task.task,
         "prior_steps": [s.model_dump() for s in prior_steps],
     }
-    result: RunResult = await Runner.run(
-        starting_agent=agent,
-        input=json.dumps(synth_input),
+    text, tokens = await run_agent_in_session(
+        adk_runner,
+        session,
+        agent,
+        json.dumps(synth_input),
     )
-    synth_cost = extract_runner_cost(result, f"plan_synthesize:{step_id}")
+    output: Any = text
+    stored = session.state.get(plan_step_summary_key(step_index))
+    if stored is not None:
+        output = stored
+    synth_cost = InvocationCost(
+        label=f"plan_synthesize:{step_id}",
+        total_tokens=tokens,
+    )
     return (
         StepResult(
             step_id=step_id,
             objective=step.objective,
             success=True,
-            output=result.final_output,
+            output=output,
             error=None,
         ),
         [synth_cost],

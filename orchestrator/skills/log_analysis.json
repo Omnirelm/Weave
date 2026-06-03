@@ -5,7 +5,7 @@
   "kind": "simple",
   "instructions": "You are an SRE log analysis skill.\nAnalyze the provided logs and return a concise root-cause oriented summary\nwith evidence from log lines and timestamps.\n",
   "capabilities": [],
-  "model": "gpt-4.1",
+  "model": "gemini/gemini-2.0-flash",
   "input_schema": {
     "type": "object",
     "properties": {

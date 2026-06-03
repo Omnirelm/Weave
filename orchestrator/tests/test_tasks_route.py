@@ -74,9 +74,11 @@ class _DummyRunner:
         input_payload: dict,
         tenant_id: str,
         *,
+        runner: object | None = None,
+        session: object | None = None,
         _depth: int = 0,
     ) -> SkillResult:
-        del _depth
+        del runner, session, _depth
         self.calls.append((skill_id, input_payload, tenant_id))
         return self._skill_result
 
@@ -141,13 +143,8 @@ async def test_run_task_planner_only_flow(monkeypatch: pytest.MonkeyPatch) -> No
     async def fake_execute_plan_step(
         step: tasks.PlanStep,
         step_index: int,
-        *,
-        storage: object,
-        task: object,
-        runner: object,
-        prior_steps: object,
+        **_: object,
     ) -> tuple[StepResult, list[InvocationCost]]:
-        del storage, task, runner, prior_steps
         return (
             StepResult(
                 step_id=f"plan_step_{step_index}",
@@ -378,25 +375,18 @@ async def test_run_planner_includes_skill_hint_and_input(
 ) -> None:
     captured: dict[str, object] = {}
 
-    class _FakeRunResult:
-        def final_output_as(
-            self, _model: type[tasks.ExecutionPlan], _strict: bool
-        ) -> tasks.ExecutionPlan:
-            return tasks.ExecutionPlan(steps=[], reasoning="ok")
+    async def fake_run_agent_in_session(
+        _runner: object, _session: object, _agent: object, message: str, **_: object
+    ) -> tuple[str, int]:
+        captured["payload"] = json.loads(message)
+        return (
+            json.dumps({"steps": [], "reasoning": "ok"}),
+            0,
+        )
 
-    async def fake_runner_run(*, starting_agent: object, input: str) -> _FakeRunResult:
-        del starting_agent
-        captured["payload"] = json.loads(input)
-        return _FakeRunResult()
-
-    monkeypatch.setattr(planner_mod.Runner, "run", staticmethod(fake_runner_run))
-    monkeypatch.setattr(
-        planner_mod,
-        "extract_runner_cost",
-        lambda *_: InvocationCost(label="planner", total_tokens=0),
-    )
+    monkeypatch.setattr(planner_mod, "run_agent_in_session", fake_run_agent_in_session)
     monkeypatch.setattr(planner_mod, "get_agent_instructions", lambda _k: "instructions")
-    monkeypatch.setattr(planner_mod, "get_agent_model", lambda _k: "gpt-5-mini")
+    monkeypatch.setattr(planner_mod, "get_agent_model", lambda _k: "gemini/gemini-2.0-flash")
     monkeypatch.setattr(planner_mod, "get_agent_name", lambda _k: "planner")
 
     storage = MagicMock()
@@ -412,12 +402,14 @@ async def test_run_planner_includes_skill_hint_and_input(
         skill_id="log_analysis",
         input={"alert_id": "a-1"},
     )
+    adk_session = SimpleNamespace(state={})
 
     await tasks._run_planner(
         task=task,
         storage=storage,
         runner=runner,
-        completed_steps=[],
+        adk_runner=MagicMock(),
+        session=adk_session,
         replan_reason=None,
     )
 
@@ -452,6 +444,8 @@ async def test_execute_plan_step_merges_task_input_into_skill_payload() -> None:
         task=task,
         runner=runner,
         storage=storage,
+        adk_runner=MagicMock(),
+        session=SimpleNamespace(state={}),
         prior_steps=[],
     )
 

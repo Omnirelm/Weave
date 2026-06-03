@@ -5,10 +5,10 @@ from __future__ import annotations
 import json
 
 import pytest
-from agents.exceptions import ModelBehaviorError
 
 from src.core.skills.base import SkillDef
 from src.core.skills.output_validation import (
+    SkillOutputError,
     validate_skill_output,
     validate_skill_output_or_model_error,
 )
@@ -67,7 +67,7 @@ def test_validate_skill_output_or_model_error_bad_json() -> None:
             "required": ["x"],
         }
     )
-    with pytest.raises(ModelBehaviorError, match="JSON"):
+    with pytest.raises(SkillOutputError, match="JSON"):
         validate_skill_output_or_model_error(skill, "not json")
 
 
@@ -80,5 +80,5 @@ def test_validate_skill_output_or_model_error_invalid_instance() -> None:
         }
     )
     raw = json.dumps({"x": "nope"})
-    with pytest.raises(ModelBehaviorError):
+    with pytest.raises(SkillOutputError):
         validate_skill_output_or_model_error(skill, raw)
