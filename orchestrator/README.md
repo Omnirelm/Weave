@@ -1,8 +1,8 @@
 # orchestrator
 
-Python package for the **Weave** orchestrator: a FastAPI service that runs **tasks** (planner + steps) and **skills** against PostgreSQL, using the OpenAI Agents SDK.
+Python package for the **Weave** orchestrator: a FastAPI service that runs **tasks** (single agent execution) against PostgreSQL, using Google ADK.
 
-**Setup, Docker Compose, uv, and the tenant → skill → integration → task walkthrough:** see the repository root **[README.md](../README.md#run-weave)**.
+**Setup, Docker Compose, uv, and the tenant → agent → integration → task walkthrough:** see the repository root **[README.md](../README.md#run-weave)**.
 
 ---
 
@@ -10,10 +10,25 @@ Python package for the **Weave** orchestrator: a FastAPI service that runs **tas
 
 | Path | Purpose |
 |------|---------|
-| [`src/`](src/) | Application code: `api/` (routes, middleware, OpenAPI models), `core/` (skills runner, tools, MCP), `storage/` (ORM, repositories), `integrations/`, `config/`, … |
-| [`skills/`](skills/) | JSON **templates** aligned with `POST /tenants/{slug}/skills`. Runtime execution reads skills from the **`tenant_skills`** table. |
+| [`src/`](src/) | Application code: `api/` (routes, middleware, OpenAPI models), `core/` (agents runner, tools, MCP), `storage/` (ORM, repositories), `integrations/`, `config/`, … |
+| [`agents/`](agents/) | JSON **templates** aligned with `POST /tenants/{slug}/agents`. Runtime execution reads agents from the **`tenant_agents`** table. |
+| [`workflows/`](workflows/) | JSON **templates** for multi-agent chains (`POST /tenants/{slug}/workflows`). |
+
+**Updating agents after template changes:** the API does not auto-sync files under `agents/`. Re-register each changed agent so `tenant_agents` picks up the new definition:
+
+```bash
+export BASE=http://localhost:9999
+for agent in ppl_generation fetch_and_analyze git_inference; do
+  curl -s -X POST "$BASE/tenants/{slug}/agents" \
+    -H "Content-Type: application/json" \
+    -d @"agents/${agent}.json"
+done
+```
+
+Replace `{slug}` with your tenant (e.g. `xcorp`). Workflow agents use natural-language handoffs end-to-end.
+
 | [`schema/init.sql`](schema/init.sql) | Canonical Postgres schema (applied manually or via Compose init). |
-| [`schema/migrate_*.sql`](schema/) | Optional forward SQL for existing databases. |
+| [`schema/migrations/`](schema/migrations/) | Forward SQL for existing databases. |
 | [`spec/openapi.yaml`](spec/openapi.yaml) | API contract; generated Pydantic models live under `src/api/models/`. |
 | [`scripts/mint_api_key.py`](scripts/mint_api_key.py) | Mint tenant API keys when **`auth.disabled`** is `false`. |
 
@@ -32,7 +47,7 @@ Dynaconf loads this file from the package root; override with **`ORCHESTRATOR_`*
 
 ## Database
 
-SQLAlchemy 2.x (async) + PostgreSQL. The app does not migrate schema by itself — apply [`schema/init.sql`](schema/init.sql) (or your forward scripts). ORM models in [`src/storage/models/`](src/storage/models/) must stay in sync with that SQL; change patterns and checklist: **[CLAUD.md](CLAUD.md)**.
+SQLAlchemy 2.x (async) + PostgreSQL. The app does not migrate schema by itself — apply [`schema/init.sql`](schema/init.sql) (or migration scripts). ORM models in [`src/storage/models/`](src/storage/models/) must stay in sync with that SQL.
 
 ---
 
@@ -42,14 +57,12 @@ SQLAlchemy 2.x (async) + PostgreSQL. The app does not migrate schema by itself �
 |------|--------|
 | Health | `GET /health` |
 | Tenants | `POST /tenants`, `GET /tenants/{slug}` |
-| Skills | `GET`/`POST` `/tenants/{slug}/skills`, `GET`/`DELETE` `/tenants/{slug}/skills/{id}` |
+| Agents | `GET`/`POST` `/tenants/{slug}/agents`, `GET`/`DELETE` `/tenants/{slug}/agents/{id}` |
 | Integrations | `GET`/`POST` `/tenants/{slug}/integrations`, `GET`/`PUT` `/tenants/{slug}/integrations/{id}` |
 | Tasks | `POST /tasks/run` |
 | Tools | `GET /tools` |
 
 Full request/response shapes: **`/docs`** or [`spec/openapi.yaml`](spec/openapi.yaml).
-
-**`task_runs.step_execution_detail` (v1):** `null` or `{"schemaVersion":1,"events":[...]}` where each event is `type: "plan"` (reasoning, `replanReason`, planned steps) or `type: "step"` (`action`, `result`) in chronological order. Application code does not read older layouts.
 
 ---
 
@@ -68,6 +81,14 @@ uv run pytest
 ```
 
 Run from **`orchestrator/`** (next to `pyproject.toml`).
+
+---
+
+## Observability
+
+**Application logs:** Workflow runs emit structured `workflow.run.*` and `workflow.step.done` lines correlated by `task_id`. Override verbosity with `ORCHESTRATOR_LOG_LEVEL` (`DEBUG` adds per-ADK-event `workflow.event` lines).
+
+**OpenTelemetry (ADK-native):** Set `OTEL_ENABLED=true` and `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` in [`.env.example`](.env.example). With `docker compose --profile observability up`, traces appear in Jaeger at `http://localhost:16686` (`invoke_workflow` → `invoke_agent` waterfalls). Spans include `weave.task_id`, `weave.tenant_id`, and `weave.workflow_id` when a task run is in progress.
 
 ---
 

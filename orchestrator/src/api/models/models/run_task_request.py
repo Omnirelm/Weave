@@ -29,9 +29,10 @@ class RunTaskRequest(BaseModel):
     """ # noqa: E501
     objective: StrictStr
     slug: StrictStr
-    skill_id: Optional[StrictStr] = Field(default=None, description="If skill id not is not specified Orchestrator prepares a plan and then executes it.")
-    input: Optional[Dict[str, Any]] = Field(default=None, description="Optional key-value payload. Surfaced to the planner as task.input when planning without skill_id. When skill_id is set, merged with orchestrator fields (objective, task, prior_steps) and validated against that skill's input_schema when present. ")
-    __properties: ClassVar[List[str]] = ["objective", "slug", "skill_id", "input"]
+    workflow_id: Optional[StrictStr] = Field(default=None, description="Tenant workflow to execute for this task.")
+    agent_id: Optional[StrictStr] = Field(default=None, description="Tenant agent to run for this task (single-agent shortcut).")
+    input: Optional[StrictStr] = Field(default=None, description="Free-form natural language / markdown context for the task.")
+    __properties: ClassVar[List[str]] = ["objective", "slug", "workflow_id", "agent_id", "input"]
 
     model_config = ConfigDict(
         validate_by_name=True,
@@ -72,11 +73,6 @@ class RunTaskRequest(BaseModel):
             exclude=excluded_fields,
             exclude_none=True,
         )
-        # set to None if skill_id (nullable) is None
-        # and model_fields_set contains the field
-        if self.skill_id is None and "skill_id" in self.model_fields_set:
-            _dict['skill_id'] = None
-
         # set to None if input (nullable) is None
         # and model_fields_set contains the field
         if self.input is None and "input" in self.model_fields_set:
@@ -95,8 +91,9 @@ class RunTaskRequest(BaseModel):
 
         _obj = cls.model_validate({
             "objective": obj.get("objective"),
-            "slug": obj.get("slug") if obj.get("slug") is not None else 'default',
-            "skill_id": obj.get("skill_id"),
+            "slug": obj.get("slug"),
+            "workflow_id": obj.get("workflow_id"),
+            "agent_id": obj.get("agent_id"),
             "input": obj.get("input")
         })
         return _obj

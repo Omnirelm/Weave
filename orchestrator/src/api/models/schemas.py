@@ -6,11 +6,16 @@ by the OpenAPI generator.
 """
 from __future__ import annotations
 
-from typing import Annotated, Any, Union
+from typing import Annotated, Union
 
-from pydantic import AliasChoices, BaseModel, ConfigDict, Field, model_validator
+from pydantic import AliasChoices, Field, model_validator
+
 from typing_extensions import Literal, Self
 
+from .models.agent_resource import AgentResource
+from .models.workflow_edge_resource import WorkflowEdgeResource
+from .models.workflow_node_resource import WorkflowNodeResource
+from .models.workflow_resource import WorkflowResource
 from .models.click_house_v1 import ClickHouseV1
 from .models.code_repository_v1 import CodeRepositoryV1
 from .models.error_response import ErrorResponse
@@ -28,42 +33,30 @@ from .models.loki_v1 import LokiV1
 from .models.mcp_server_v1 import McpServerV1
 from .models.open_search_v1 import OpenSearchV1
 from .models.page import Page
-from .models.run_task_request import RunTaskRequest as RunTaskRequestModel
+from .models.run_task_request import RunTaskRequest as _GeneratedRunTaskRequest
 from .models.run_task_response import RunTaskResponse
-from .models.skill_resource import SkillResource
-from .models.skill_step_resource import SkillStepResource
-from .models.step_result_dto import StepResultDto
 from .models.tempo_v1 import TempoV1
 from .models.tenant_integration_type_v1 import TenantIntegrationTypeV1
-from .models.tenant_integration_v1 import TenantIntegrationV1
 from .models.tenant_v1 import TenantV1
 from .models.tool_v1 import ToolV1
 from .models.tools_page_response import ToolsPageResponse
 from .models.trace_source_v1 import TraceSourceV1
 
 
-class RunTaskRequest(RunTaskRequestModel):
-    """Generated RunTaskRequest plus orchestration execution mode."""
-
-    execution_mode: Literal["orchestrate", "direct"] = Field(
-        default="orchestrate",
-        description=(
-            "orchestrate (default): discover skills/tools, plan, execute, replan on failure. "
-            "direct: requires skill_id; runs that skill once (no planner; success or error only)."
-        ),
-        validation_alias=AliasChoices("executionMode", "execution_mode"),
-        serialization_alias="executionMode",
-    )
-
-    @model_validator(mode="after")
-    def direct_mode_requires_skill_id(self) -> Self:
-        if self.execution_mode == "direct" and not self.skill_id:
-            raise ValueError("skill_id is required when executionMode is 'direct'")
-        return self
-
-
 class CreateTenantRequest(TenantV1):
     pass
+
+
+class RunTaskRequest(_GeneratedRunTaskRequest):
+    @model_validator(mode="after")
+    def validate_execution_target(self) -> Self:
+        has_agent = bool(self.agent_id and str(self.agent_id).strip())
+        has_workflow = bool(self.workflow_id and str(self.workflow_id).strip())
+        if not has_agent and not has_workflow:
+            raise ValueError("workflow_id or agent_id is required")
+        if has_agent and has_workflow:
+            raise ValueError("Provide workflow_id or agent_id, not both")
+        return self
 
 
 # ---------------------------------------------------------------------------
@@ -197,6 +190,7 @@ _IntegrationUnion = Annotated[
     Field(discriminator="type"),
 ]
 
-CreateIntegrationRequest = _IntegrationUnion
-UpdateIntegrationRequest = _IntegrationUnion
-IntegrationResponse      = _IntegrationUnion
+TenantIntegrationV1 = _IntegrationUnion
+CreateIntegrationRequest = TenantIntegrationV1
+UpdateIntegrationRequest = TenantIntegrationV1
+IntegrationResponse = TenantIntegrationV1

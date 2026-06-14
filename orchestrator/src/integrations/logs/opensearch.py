@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 import json
 import logging
 import base64
+import re
 from typing import Dict, Any, List, Optional
 from .base import LogExtractor, LogExtractorError, LogEntry, OAuthConfig, OAuthTokenManager, QueryGenerationError
 from .parsers import detect_format, parse_json, parse_logfmt, extract_trace_id_span_id
@@ -286,6 +287,23 @@ class OpenSearchExtractor(LogExtractor):
         # For PPL queries, the query string typically contains everything (time, limit)
         # So we don't need to pass start/end/limit - they're embedded in the query
         return self._fetch_logs_ppl(query, timestamp_field=timestamp_field, **kwargs)
+
+    @staticmethod
+    def _normalize_ppl_query(ppl_query: str) -> str:
+        """Fix common agent mistakes before sending PPL to OpenSearch."""
+        query = ppl_query.strip()
+        # OpenSearch PPL rejects quoted index patterns: search source="idx" | ...
+        query = re.sub(
+            r'(?i)\bsearch\s+source\s*=\s*"([^"]+)"',
+            r"search source=\1",
+            query,
+        )
+        query = re.sub(
+            r"(?i)\bsearch\s+source\s*=\s*'([^']+)'",
+            r"search source=\1",
+            query,
+        )
+        return query
     
     def _fetch_logs_ppl(self, ppl_query: str, 
                        timestamp_field: str = "@timestamp", **kwargs) -> List[LogEntry]:
@@ -303,9 +321,9 @@ class OpenSearchExtractor(LogExtractor):
         """
         url = f"{self.base_url}/_plugins/_ppl"
         
-        # Agent-generated PPL queries already include everything (time filters, limit)
-        # Use the query as-is
-        final_ppl_query = ppl_query
+        final_ppl_query = self._normalize_ppl_query(ppl_query)
+        if final_ppl_query != ppl_query.strip():
+            logger.debug("Normalized PPL query: %r -> %r", ppl_query, final_ppl_query)
         
         logger.debug(f"Executing PPL Query: {final_ppl_query}")
         

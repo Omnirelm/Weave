@@ -6,7 +6,8 @@ from src.storage.repositories.integration import IntegrationRepository
 from src.storage.repositories.quota_usage import QuotaUsageRepository
 from src.storage.repositories.task_run import TaskRunRepository
 from src.storage.repositories.tenant import TenantRepository
-from src.storage.repositories.tenant_skill import TenantSkillRepository
+from src.storage.repositories.tenant_agent import TenantAgentRepository
+from src.storage.repositories.tenant_workflow import TenantWorkflowRepository
 
 __all__ = [
     "AbstractRepository",
@@ -14,6 +15,7 @@ __all__ = [
     "QuotaUsageRepository",
     "IntegrationRepository",
     "TenantRepository",
-    "TenantSkillRepository",
+    "TenantAgentRepository",
+    "TenantWorkflowRepository",
     "TaskRunRepository",
 ]

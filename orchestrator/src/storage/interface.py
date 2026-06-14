@@ -13,7 +13,8 @@ from src.storage.repositories.integration import IntegrationRepository
 from src.storage.repositories.quota_usage import QuotaUsageRepository
 from src.storage.repositories.task_run import TaskRunRepository
 from src.storage.repositories.tenant import TenantRepository
-from src.storage.repositories.tenant_skill import TenantSkillRepository
+from src.storage.repositories.tenant_agent import TenantAgentRepository
+from src.storage.repositories.tenant_workflow import TenantWorkflowRepository
 
 
 class StorageGateway:
@@ -26,7 +27,8 @@ class StorageGateway:
         self.api_keys = ApiKeyRepository(db)
         self.quota_usage = QuotaUsageRepository(db)
         self.task_runs = TaskRunRepository(db)
-        self.tenant_skills = TenantSkillRepository(db)
+        self.tenant_agents = TenantAgentRepository(db)
+        self.tenant_workflows = TenantWorkflowRepository(db)
 
     @property
     def db(self) -> DatabaseManager:

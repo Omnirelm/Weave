@@ -21,7 +21,7 @@ cors:
   allow_credentials: true
   max_age: 600
 
-# PostgreSQL connection for tenants, integrations, tenant skills, task runs, etc.
+# PostgreSQL connection for tenants, integrations, tenant agents, task runs, etc.
 # Override at runtime with ORCHESTRATOR_DATABASE__URL.
 database:
   url: postgresql+asyncpg://orchestrator:orchestrator@localhost:5432/orchestrator
@@ -54,6 +54,9 @@ auth:
       methods: [POST]
       operation: task_run
       tenant_in_body: true
-    - path_pattern: "^/tenants/[^/]+/skills$"
+    - path_pattern: "^/tenants/[^/]+/agents$"
       methods: [POST]
-      operation: skill_max
+      operation: agent_max
+    - path_pattern: "^/tenants/[^/]+/workflows$"
+      methods: [POST]
+      operation: workflow_max

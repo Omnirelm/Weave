@@ -14,7 +14,8 @@ if TYPE_CHECKING:
     from src.storage.models.task_run import TaskRun
     from src.storage.models.tenant_api_key import TenantApiKey
     from src.storage.models.tenant_quota_usage import TenantQuotaUsage
-    from src.storage.models.tenant_skill import TenantSkill
+    from src.storage.models.tenant_agent import TenantAgent
+    from src.storage.models.tenant_workflow import TenantWorkflow
 
 
 class Tenant(Base, TimestampMixin):
@@ -55,7 +56,12 @@ class Tenant(Base, TimestampMixin):
         cascade="all, delete-orphan",
         lazy="raise",
     )
-    skills: Mapped[list["TenantSkill"]] = relationship(
+    agents: Mapped[list["TenantAgent"]] = relationship(
+        back_populates="tenant",
+        cascade="all, delete-orphan",
+        lazy="raise",
+    )
+    workflows: Mapped[list["TenantWorkflow"]] = relationship(
         back_populates="tenant",
         cascade="all, delete-orphan",
         lazy="raise",

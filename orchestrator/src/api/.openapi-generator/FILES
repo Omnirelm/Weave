@@ -1,3 +1,4 @@
+models/models/agent_resource.py
 models/models/click_house_v1.py
 models/models/code_repository_v1.py
 models/models/error_response.py
@@ -17,9 +18,6 @@ models/models/open_search_v1.py
 models/models/page.py
 models/models/run_task_request.py
 models/models/run_task_response.py
-models/models/skill_resource.py
-models/models/skill_step_resource.py
-models/models/step_result_dto.py
 models/models/tempo_v1.py
 models/models/tenant_integration_type_v1.py
 models/models/tenant_integration_v1.py
@@ -27,3 +25,6 @@ models/models/tenant_v1.py
 models/models/tool_v1.py
 models/models/tools_page_response.py
 models/models/trace_source_v1.py
+models/models/workflow_edge_resource.py
+models/models/workflow_node_resource.py
+models/models/workflow_resource.py

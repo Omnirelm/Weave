@@ -5,8 +5,7 @@ from src.core.adk.session import (
     TASK_USER_ID,
     build_runner,
     create_task_session,
-    run_agent_in_session,
-    seed_session_state,
+    run_runner_turn,
 )
 
 __all__ = [
@@ -14,6 +13,5 @@ __all__ = [
     "TASK_USER_ID",
     "build_runner",
     "create_task_session",
-    "run_agent_in_session",
-    "seed_session_state",
+    "run_runner_turn",
 ]

@@ -2,7 +2,10 @@
 #
 # Usage:
 #   cp orchestrator/.env.example orchestrator/.env   # fill in secrets
-#   docker compose up --build                        # start orchestrator
+#   docker compose up --build                        # start postgres + orchestrator
+#
+# Postgres: localhost:5432 (user/pass/db: orchestrator/orchestrator/orchestrator)
+# On first volume creation, orchestrator/schema/init.sql is applied automatically.
 #
 # Optional observability stack (Jaeger UI at http://localhost:16686):
 #   docker compose --profile observability up --build
@@ -11,24 +14,47 @@
 #   OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://jaeger:4317
 
 services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: orchestrator
+      POSTGRES_PASSWORD: orchestrator
+      POSTGRES_DB: orchestrator
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./orchestrator/schema/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U orchestrator -d orchestrator"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
   orchestrator:
     build:
       context: ./orchestrator
       dockerfile: Dockerfile
     image: weave-orchestrator:local
+    depends_on:
+      postgres:
+        condition: service_healthy
     env_file:
       - ./orchestrator/.env
     environment:
       # Explicit defaults that must match the container — override via .env if needed
       REST_PORT: "9999"
       PYTHONUNBUFFERED: "1"
+      ORCHESTRATOR_DATABASE__URL: postgresql+asyncpg://orchestrator:orchestrator@postgres:5432/orchestrator
     ports:
       - "9999:9999"
     volumes:
-      # Mount config and skills as read-only so changes take effect without a rebuild.
+      # Mount config and agent templates as read-only so changes take effect without a rebuild.
       # Remove the volumes block if you prefer fully baked images.
       - ./orchestrator/config.yaml:/app/config.yaml:ro
-      - ./orchestrator/skills:/app/skills:ro
+      - ./orchestrator/agents:/app/agents:ro
     restart: unless-stopped
     healthcheck:
       test:
@@ -57,3 +83,6 @@ services:
     restart: unless-stopped
     profiles:
       - observability
+
+volumes:
+  postgres_data:

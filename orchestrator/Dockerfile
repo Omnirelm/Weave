@@ -31,7 +31,7 @@ ENV PATH="/app/.venv/bin:$PATH"
 # Copy application code
 COPY src/ ./src/
 COPY config.yaml ./
-COPY skills/ ./skills/
+COPY agents/ ./agents/
 
 # Create non-root user
 RUN useradd -m -u 1000 appuser && \

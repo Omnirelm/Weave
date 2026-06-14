@@ -28,7 +28,7 @@ def test_public_routes_health_and_tenant_create(public_pairs: frozenset[tuple[st
 
 
 def test_path_tenant_slug() -> None:
-    assert _path_tenant_slug("/tenants/acme/skills") == "acme"
+    assert _path_tenant_slug("/tenants/acme/agents") == "acme"
     assert _path_tenant_slug("/tasks/run") is None
 
 
@@ -79,13 +79,12 @@ async def test_middleware_auth_disabled_skips_validation(monkeypatch: pytest.Mon
         async def fake_wire(app: object) -> None:
             storage = MagicMock()
             storage.tenants.get_by_slug = AsyncMock(return_value=SimpleNamespace(slug="foo"))
-            storage.tenant_skills.list_for_tenant = AsyncMock(return_value=[])
+            storage.tenant_agents.list_for_tenant = AsyncMock(return_value=[])
             storage.db.dispose = AsyncMock()
             app.state.storage = storage  # type: ignore[attr-defined]
             app.state.tool_provider = MagicMock()
             app.state.mcp_provider = MagicMock()
-            app.state.skill_registry = MagicMock()
-            app.state.skill_runner = MagicMock()
+            app.state.agent_runner = MagicMock()
 
         monkeypatch.setattr(main_mod, "wire_application", fake_wire)
 
@@ -93,7 +92,7 @@ async def test_middleware_auth_disabled_skips_validation(monkeypatch: pytest.Mon
 
         TestClient = __import__("fastapi.testclient", fromlist=["TestClient"]).TestClient
         with TestClient(create_app()) as client:
-            r = client.get("/tenants/foo/skills")
+            r = client.get("/tenants/foo/agents")
         assert r.status_code in (200, 500)
     finally:
         get_config.cache_clear()
@@ -114,13 +113,12 @@ async def test_middleware_missing_key_returns_401(monkeypatch: pytest.MonkeyPatc
         async def fake_wire(app: object) -> None:
             storage = MagicMock()
             storage.tenants.get_by_slug = AsyncMock(return_value=SimpleNamespace(slug="foo"))
-            storage.tenant_skills.list_for_tenant = AsyncMock(return_value=[])
+            storage.tenant_agents.list_for_tenant = AsyncMock(return_value=[])
             storage.db.dispose = AsyncMock()
             app.state.storage = storage  # type: ignore[attr-defined]
             app.state.tool_provider = MagicMock()
             app.state.mcp_provider = MagicMock()
-            app.state.skill_registry = MagicMock()
-            app.state.skill_runner = MagicMock()
+            app.state.agent_runner = MagicMock()
 
         monkeypatch.setattr(main_mod, "wire_application", fake_wire)
 
@@ -128,7 +126,7 @@ async def test_middleware_missing_key_returns_401(monkeypatch: pytest.MonkeyPatc
 
         TestClient = __import__("fastapi.testclient", fromlist=["TestClient"]).TestClient
         with TestClient(create_app()) as client:
-            r = client.get("/tenants/foo/skills")
+            r = client.get("/tenants/foo/agents")
         assert r.status_code == 401
         assert r.json()["detail"] == "Missing API key"
     finally:

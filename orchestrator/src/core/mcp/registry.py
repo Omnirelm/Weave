@@ -94,7 +94,7 @@ class McpServerRegistry:
             config = self.get(name)
             if config is None:
                 logger.warning(
-                    "Skill declared MCP server %r but it is not enabled or configured; skipping",
+                    "Agent declared MCP server %r but it is not enabled or configured; skipping",
                     name,
                 )
                 continue

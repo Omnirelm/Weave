@@ -11,7 +11,7 @@ from src.core.mcp.registry import McpServerConfig, McpServerRegistry
 from src.integrations.flavours import IntegrationType
 
 if TYPE_CHECKING:
-    from src.core.skills.base import SkillDef
+    from src.core.agents.base import AgentDef
     from src.storage.interface import StorageGateway
 
 logger = logging.getLogger(__name__)
@@ -22,7 +22,7 @@ _server_builder = McpServerRegistry()
 class McpProvider:
     """Resolves MCP toolsets for a tenant at request time.
 
-    Skill YAMLs declare MCP servers by flavour name (e.g. ``["GITHUB", "JIRA"]``).
+    Agent definitions declare MCP servers by flavour name (e.g. ``["GITHUB", "JIRA"]``).
     At execution time McpProvider queries tenant_integrations for active rows with
     ``integration_type='MCP'`` and the requested flavours, then builds ADK
     ``McpToolset`` instances from each row's config dict.
@@ -31,11 +31,11 @@ class McpProvider:
     def __init__(self, storage: StorageGateway) -> None:
         self._storage = storage
 
-    async def get_toolsets_for_skill(
-        self, skill: "SkillDef", tenant_slug: str
+    async def get_toolsets_for_agent(
+        self, agent: "AgentDef", tenant_slug: str
     ) -> list[McpToolset]:
-        """Return ``McpToolset`` instances declared on the skill for this tenant."""
-        return await self.get_toolsets_for_flavours(skill.mcp_servers, tenant_slug)
+        """Return ``McpToolset`` instances declared on the agent for this tenant."""
+        return await self.get_toolsets_for_flavours(agent.mcp_servers, tenant_slug)
 
     async def get_toolsets_for_flavours(
         self, flavours: list[str], tenant_slug: str

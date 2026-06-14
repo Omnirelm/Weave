@@ -26,7 +26,7 @@ INSERT INTO plans (slug, display_name) VALUES
     ('pro', 'Pro')
 ON CONFLICT (slug) DO NOTHING;
 
--- Per-plan limits per logical operation (task_run, skill_max, ...).
+-- Per-plan limits per logical operation (task_run, agent_max, ...).
 CREATE TABLE IF NOT EXISTS plan_quotas (
     plan_slug    VARCHAR(64)   NOT NULL REFERENCES plans (slug) ON DELETE CASCADE,
     operation    VARCHAR(64)   NOT NULL,
@@ -41,11 +41,14 @@ CREATE INDEX IF NOT EXISTS ix_plan_quotas_plan_slug ON plan_quotas (plan_slug);
 
 INSERT INTO plan_quotas (plan_slug, operation, limit_value, period) VALUES
     ('starter', 'task_run', 20, 'monthly'),
-    ('starter', 'skill_max', 20, 'none'),
+    ('starter', 'agent_max', 20, 'none'),
+    ('starter', 'workflow_max', 5, 'none'),
     ('essential', 'task_run', 500, 'monthly'),
-    ('essential', 'skill_max', 100, 'none'),
+    ('essential', 'agent_max', 100, 'none'),
+    ('essential', 'workflow_max', 50, 'none'),
     ('pro', 'task_run', 10000, 'monthly'),
-    ('pro', 'skill_max', 500, 'none')
+    ('pro', 'agent_max', 500, 'none'),
+    ('pro', 'workflow_max', 200, 'none')
 ON CONFLICT (plan_slug, operation) DO NOTHING;
 
 -- Tenants
@@ -98,21 +101,32 @@ CREATE TABLE IF NOT EXISTS tenant_integrations (
 CREATE INDEX IF NOT EXISTS ix_tenant_integrations_tenant_slug
     ON tenant_integrations (tenant_slug);
 
--- Tenant-defined skills (full SkillDef in JSONB; indexed columns for listing/filtering).
-CREATE TABLE IF NOT EXISTS tenant_skills (
+-- Tenant-defined agents (full AgentDef in JSONB; indexed columns for listing/filtering).
+CREATE TABLE IF NOT EXISTS tenant_agents (
     tenant_slug  VARCHAR(64)   NOT NULL REFERENCES tenants (slug) ON DELETE CASCADE,
-    skill_id     VARCHAR(128)  NOT NULL,
-    kind         VARCHAR(32)   NOT NULL CHECK (kind IN ('simple', 'composed')),
+    agent_id     VARCHAR(128)  NOT NULL,
     name         VARCHAR(255)  NOT NULL,
-    model        VARCHAR(128)  NOT NULL DEFAULT 'gemini/gemini-2.0-flash',
+    model        VARCHAR(128)  NOT NULL DEFAULT 'gemini/gemini-3.5-flash',
     definition   JSONB         NOT NULL,
     created_at   TIMESTAMPTZ   NOT NULL DEFAULT now(),
     updated_at   TIMESTAMPTZ   NOT NULL DEFAULT now(),
-    PRIMARY KEY (tenant_slug, skill_id)
+    PRIMARY KEY (tenant_slug, agent_id)
 );
 
-CREATE INDEX IF NOT EXISTS ix_tenant_skills_tenant_slug ON tenant_skills (tenant_slug);
-CREATE INDEX IF NOT EXISTS ix_tenant_skills_kind ON tenant_skills (tenant_slug, kind);
+CREATE INDEX IF NOT EXISTS ix_tenant_agents_tenant_slug ON tenant_agents (tenant_slug);
+
+-- Tenant-defined workflows (full WorkflowDef in JSONB).
+CREATE TABLE IF NOT EXISTS tenant_workflows (
+    tenant_slug    VARCHAR(64)   NOT NULL REFERENCES tenants (slug) ON DELETE CASCADE,
+    workflow_id    VARCHAR(128)  NOT NULL,
+    name           VARCHAR(255)  NOT NULL,
+    definition     JSONB         NOT NULL,
+    created_at     TIMESTAMPTZ   NOT NULL DEFAULT now(),
+    updated_at     TIMESTAMPTZ   NOT NULL DEFAULT now(),
+    PRIMARY KEY (tenant_slug, workflow_id)
+);
+
+CREATE INDEX IF NOT EXISTS ix_tenant_workflows_tenant_slug ON tenant_workflows (tenant_slug);
 
 -- Orchestrated task runs (POST /tasks/run): full response snapshot per execution.
 CREATE TABLE IF NOT EXISTS task_runs (
@@ -120,13 +134,13 @@ CREATE TABLE IF NOT EXISTS task_runs (
     tenant_slug             VARCHAR(64)   NOT NULL REFERENCES tenants (slug) ON DELETE CASCADE,
     success                 BOOLEAN       NOT NULL,
     objective               TEXT          NOT NULL,
-    skill_id                VARCHAR(255),
+    agent_id                VARCHAR(255),
+    workflow_id             VARCHAR(128),
     request_input           JSONB,
     output                  JSONB,
     summary                 TEXT,
     reasoning               TEXT,
     error                   TEXT,
-    steps_completed         JSONB         NOT NULL DEFAULT '[]'::jsonb,
     -- step_execution_detail: v1 object {"schemaVersion":1,"events":[...]} or NULL (see README).
     step_execution_detail   JSONB,
     cost                    JSONB,
@@ -137,6 +151,7 @@ CREATE TABLE IF NOT EXISTS task_runs (
 );
 
 CREATE INDEX IF NOT EXISTS ix_task_runs_tenant_slug ON task_runs (tenant_slug);
+CREATE INDEX IF NOT EXISTS ix_task_runs_workflow_id ON task_runs (tenant_slug, workflow_id);
 CREATE INDEX IF NOT EXISTS ix_task_runs_tenant_finished ON task_runs (tenant_slug, finished_at DESC);
 
 COMMIT;

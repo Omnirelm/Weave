@@ -28,7 +28,7 @@ class McpServerV1(BaseModel):
     MCP server integration (stdio, SSE, or Streamable HTTP).
     """ # noqa: E501
     type: StrictStr
-    flavour: StrictStr = Field(description="Stable name used to reference this server from skill mcp_servers lists. Examples: GITHUB, JIRA, CUSTOM_MCP. ", json_schema_extra={"examples": ["GITHUB"]})
+    flavour: StrictStr = Field(description="Stable name used to reference this server from agent mcp_servers lists. Examples: GITHUB, JIRA, CUSTOM_MCP. ", json_schema_extra={"examples": ["GITHUB"]})
     transport: StrictStr
     url: Optional[StrictStr] = Field(default=None, description="Required for sse and streamable_http transports.", json_schema_extra={"examples": ["https://api.githubcopilot.com/mcp/"]})
     command: Optional[StrictStr] = Field(default=None, description="Required for stdio transport.")
