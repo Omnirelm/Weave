@@ -96,7 +96,7 @@ async def test_run_task_executes_workflow() -> None:
         input="Labels: checkout, env prod",
     )
 
-    response = await tasks.run_task(body, req)
+    response = await tasks.run_task(body.slug, body, req)
 
     assert len(workflow_runner.calls) == 1
     assert workflow_runner.calls[0][0] == "ppl_log_analysis"
@@ -120,7 +120,7 @@ async def test_run_task_workflow_not_found_404() -> None:
         workflow_id="missing",
     )
     with pytest.raises(HTTPException) as ei:
-        await tasks.run_task(body, req)
+        await tasks.run_task(body.slug, body, req)
     assert ei.value.status_code == 404
     assert len(workflow_runner.calls) == 0
 

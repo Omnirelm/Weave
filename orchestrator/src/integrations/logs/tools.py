@@ -142,9 +142,9 @@ class GetLabelValuesTool(LokiTool):
 
 class LokiValidateQueryTool(LokiTool):
     name: ClassVar[str] = "loki_validate_query"
-    description: ClassVar[str] = "Fetch logs from Loki using a query."
+    description: ClassVar[str] = "Validate a Loki query to check if it is correct and returns logs."
 
-    def execute(self, **kwargs: Any) -> List[LogEntry]:
+    def execute(self, **kwargs: Any) -> dict[str, Any]:
         query = kwargs.get("query")
         if query is None:
             raise TypeError("loki_validate_query requires query")
@@ -152,9 +152,13 @@ class LokiValidateQueryTool(LokiTool):
         end = _parse_datetime(kwargs["end"]) if kwargs.get("end") is not None else None
         limit = kwargs.get("limit", 100)
         logger.info("Validating query: %s from %s to %s", query, start, end)
-        result = self._extractor.fetch_logs(query, start=start, end=end, limit=limit)
-        logger.info("Result: %d logs fetched", len(result))
-        return result
+        try:
+            result = self._extractor.fetch_logs(query, start=start, end=end, limit=limit)
+            logger.info("Result: %d logs fetched", len(result))
+            return {"valid": True, "count": len(result)}
+        except Exception as e:
+            logger.error("Loki query validation failed: %s", e)
+            return {"valid": False, "count": 0, "error": str(e)}
 
     def as_function_tool(self) -> FunctionTool:
         ext = self._extractor
@@ -164,12 +168,20 @@ class LokiValidateQueryTool(LokiTool):
             start: datetime.datetime | None = None,
             end: datetime.datetime | None = None,
             limit: int = 100,
-        ) -> List[LogEntry]:
-            """Fetch logs from Loki using a query. start and end are optional; if omitted the last 100 logs are returned."""
+        ) -> dict[str, Any]:
+            """Validate a Loki query to check if it is correct and returns logs. Returns a validation status summary instead of full logs to save token context.
+
+            Returns:
+                dict: A dictionary containing {"valid": bool, "count": int, "error": str | None}
+            """
             logger.info("Validating query: %s from %s to %s", query, start, end)
-            result = ext.fetch_logs(query, start=start, end=end, limit=limit)
-            logger.info("Result: %d logs fetched", len(result))
-            return result
+            try:
+                result = ext.fetch_logs(query, start=start, end=end, limit=limit)
+                logger.info("Result: %d logs fetched", len(result))
+                return {"valid": True, "count": len(result)}
+            except Exception as e:
+                logger.error("Loki query validation failed: %s", e)
+                return {"valid": False, "count": 0, "error": str(e)}
 
         return FunctionTool(func=loki_validate_query)
 
@@ -257,32 +269,36 @@ class OpenSearchGetFieldNamesTool(OpenSearchTool):
 
 class OpenSearchValidateQueryTool(OpenSearchTool):
     name: ClassVar[str] = "opensearch_validate_query"
-    description: ClassVar[str] = "Fetch logs from OpenSearch using a query."
+    description: ClassVar[str] = "Validate an OpenSearch query to check if it is correct and returns logs."
 
-    def execute(self, **kwargs: Any) -> List[LogEntry]:
+    def execute(self, **kwargs: Any) -> dict[str, Any]:
         query = kwargs.get("query")
         if query is None:
             raise TypeError("opensearch_validate_query requires query")
-        result = self._extractor.fetch_logs(query)
-        sample = result[0].model_dump() if result else None
-        logger.info(
-            "opensearch_validate_query execute returned count=%d sample=%s",
-            len(result), sample,
-        )
-        return result
+        try:
+            result = self._extractor.fetch_logs(query)
+            logger.info("opensearch_validate_query execute returned count=%d", len(result))
+            return {"valid": True, "count": len(result)}
+        except Exception as e:
+            logger.error("OpenSearch query validation failed: %s", e)
+            return {"valid": False, "count": 0, "error": str(e)}
 
     def as_function_tool(self) -> FunctionTool:
         ext = self._extractor
 
-        def opensearch_validate_query(query: str) -> List[LogEntry]:
-            """Fetch logs from OpenSearch using a query."""
-            result = ext.fetch_logs(query)
-            sample = result[0].model_dump() if result else None
-            logger.info(
-                "opensearch_validate_query tool returned count=%d sample=%s",
-                len(result), sample,
-            )
-            return result
+        def opensearch_validate_query(query: str) -> dict[str, Any]:
+            """Validate an OpenSearch query to check if it is correct and returns logs. Returns a validation status summary instead of full logs to save token context.
+
+            Returns:
+                dict: A dictionary containing {"valid": bool, "count": int, "error": str | None}
+            """
+            try:
+                result = ext.fetch_logs(query)
+                logger.info("opensearch_validate_query tool returned count=%d", len(result))
+                return {"valid": True, "count": len(result)}
+            except Exception as e:
+                logger.error("OpenSearch query validation failed: %s", e)
+                return {"valid": False, "count": 0, "error": str(e)}
 
         return FunctionTool(func=opensearch_validate_query)
 
@@ -413,26 +429,38 @@ class ClickHouseGetColumnNamesTool(ClickHouseTool):
 
 class ClickHouseValidateQueryTool(ClickHouseTool):
     name: ClassVar[str] = "clickhouse_validate_query"
-    description: ClassVar[str] = "Execute a SQL SELECT query against ClickHouse and return log entries."
+    description: ClassVar[str] = "Validate a ClickHouse SQL SELECT query to check if it is correct and returns logs."
 
-    def execute(self, **kwargs: Any) -> List[LogEntry]:
+    def execute(self, **kwargs: Any) -> dict[str, Any]:
         query = kwargs.get("query")
         if query is None:
             raise TypeError("clickhouse_validate_query requires query")
         logger.info("Validating ClickHouse SQL query: %s", query)
-        result = self._extractor.fetch_logs(query)
-        logger.info("Result: %d logs fetched", len(result))
-        return result
+        try:
+            result = self._extractor.fetch_logs(query)
+            logger.info("Result: %d logs fetched", len(result))
+            return {"valid": True, "count": len(result)}
+        except Exception as e:
+            logger.error("ClickHouse query validation failed: %s", e)
+            return {"valid": False, "count": 0, "error": str(e)}
 
     def as_function_tool(self) -> FunctionTool:
         ext = self._extractor
 
-        def clickhouse_validate_query(query: str) -> List[LogEntry]:
-            """Execute a SQL SELECT query against ClickHouse and return log entries."""
+        def clickhouse_validate_query(query: str) -> dict[str, Any]:
+            """Validate a ClickHouse SQL SELECT query to check if it is correct and returns logs. Returns a validation status summary instead of full logs to save token context.
+
+            Returns:
+                dict: A dictionary containing {"valid": bool, "count": int, "error": str | None}
+            """
             logger.info("Validating ClickHouse SQL query: %s", query)
-            result = ext.fetch_logs(query)
-            logger.info("Result: %d logs fetched", len(result))
-            return result
+            try:
+                result = ext.fetch_logs(query)
+                logger.info("Result: %d logs fetched", len(result))
+                return {"valid": True, "count": len(result)}
+            except Exception as e:
+                logger.error("ClickHouse query validation failed: %s", e)
+                return {"valid": False, "count": 0, "error": str(e)}
 
         return FunctionTool(func=clickhouse_validate_query)
 

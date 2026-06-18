@@ -31,7 +31,7 @@ class RunTaskResponse(BaseModel):
     """ # noqa: E501
     task_id: UUID = Field(description="Server-generated identifier for this task run; matches the persisted task_runs row.")
     success: StrictBool
-    output: Optional[Dict[str, Any]] = Field(default=None, description="On success: output from the agent or workflow run.")
+    output: Optional[Dict[str, Any]] = Field(default=None, description="On success: output from the agent or workflow run. ")
     reasoning: Optional[StrictStr] = None
     error: Optional[StrictStr] = None
     cost: Optional[InvocationCostDto] = None

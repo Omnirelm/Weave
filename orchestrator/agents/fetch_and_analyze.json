@@ -6,7 +6,7 @@
   "model": "gemini/gemini-3.1-flash-lite",
   "tools": [
     "opensearch_fetch_logs",
-    "loki_fetch_logs",
+    "loki_fetch_logs", 
     "clickhouse_fetch_logs"
   ]
 }

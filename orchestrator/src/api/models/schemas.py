@@ -40,6 +40,8 @@ from .models.tenant_integration_type_v1 import TenantIntegrationTypeV1
 from .models.tenant_v1 import TenantV1
 from .models.tool_v1 import ToolV1
 from .models.tools_page_response import ToolsPageResponse
+from .models.model_v1 import ModelV1
+from .models.models_page_response import ModelsPageResponse
 from .models.trace_source_v1 import TraceSourceV1
 
 
@@ -194,3 +196,27 @@ TenantIntegrationV1 = _IntegrationUnion
 CreateIntegrationRequest = TenantIntegrationV1
 UpdateIntegrationRequest = TenantIntegrationV1
 IntegrationResponse = TenantIntegrationV1
+
+
+from uuid import UUID
+from datetime import datetime
+from pydantic import BaseModel
+from typing import Any
+
+class TaskRunResponse(BaseModel):
+    id: UUID
+    tenant_slug: str
+    success: bool
+    objective: str
+    agent_id: str | None = None
+    workflow_id: str | None = None
+    request_input: Any = None
+    output: dict[str, Any] | None = None
+    summary: str | None = None
+    reasoning: str | None = None
+    error: str | None = None
+    step_execution_detail: Any = None
+    cost: InvocationCostDto | None = None
+    started_at: datetime
+    finished_at: datetime
+

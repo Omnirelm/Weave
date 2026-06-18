@@ -4,7 +4,6 @@ from __future__ import annotations
 
 
 def build_workflow_agent_instruction(
-    base_instruction: str,
     *,
     step_objective: str,
     prior_output_keys: list[str],
@@ -15,8 +14,6 @@ def build_workflow_agent_instruction(
     at runtime. Prior-step ``output_key`` values use optional ADK state placeholders.
     """
     parts = [
-        base_instruction.rstrip(),
-        "",
         "### WORKFLOW CONTEXT",
         "Run objective: {objective?}",
         "User context (JSON): {user_input?}",

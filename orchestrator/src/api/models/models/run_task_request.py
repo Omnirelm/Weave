@@ -25,10 +25,10 @@ from pydantic_core import to_jsonable_python
 
 class RunTaskRequest(BaseModel):
     """
-    RunTaskRequest
+    Exactly one of agent_id or workflow_id must be provided (not both, not neither). 
     """ # noqa: E501
     objective: StrictStr
-    slug: StrictStr
+    slug: StrictStr = Field(description="Tenant slug that owns the agent or workflow.")
     workflow_id: Optional[StrictStr] = Field(default=None, description="Tenant workflow to execute for this task.")
     agent_id: Optional[StrictStr] = Field(default=None, description="Tenant agent to run for this task (single-agent shortcut).")
     input: Optional[StrictStr] = Field(default=None, description="Free-form natural language / markdown context for the task.")

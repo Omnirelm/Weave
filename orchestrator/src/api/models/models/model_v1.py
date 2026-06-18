@@ -18,23 +18,19 @@ import re  # noqa: F401
 import json
 
 from pydantic import BaseModel, ConfigDict, StrictStr
-from typing import Any, ClassVar, Dict, List, Optional
+from typing import Any, ClassVar, Dict, List
 from typing import Optional, Set
 from typing_extensions import Self
 from pydantic_core import to_jsonable_python
 
-class AgentResource(BaseModel):
+class ModelV1(BaseModel):
     """
-    AgentResource
+    ModelV1
     """ # noqa: E501
     id: StrictStr
     name: StrictStr
-    description: StrictStr
-    instructions: StrictStr
-    tools: Optional[List[StrictStr]] = None
-    mcp_servers: Optional[List[StrictStr]] = None
-    model: Optional[StrictStr] = 'gemini/gemini-3.5-flash'
-    __properties: ClassVar[List[str]] = ["id", "name", "description", "instructions", "tools", "mcp_servers", "model"]
+    provider: StrictStr
+    __properties: ClassVar[List[str]] = ["id", "name", "provider"]
 
     model_config = ConfigDict(
         validate_by_name=True,
@@ -54,7 +50,7 @@ class AgentResource(BaseModel):
 
     @classmethod
     def from_json(cls, json_str: str) -> Optional[Self]:
-        """Create an instance of AgentResource from a JSON string"""
+        """Create an instance of ModelV1 from a JSON string"""
         return cls.from_dict(json.loads(json_str))
 
     def to_dict(self) -> Dict[str, Any]:
@@ -79,7 +75,7 @@ class AgentResource(BaseModel):
 
     @classmethod
     def from_dict(cls, obj: Optional[Dict[str, Any]]) -> Optional[Self]:
-        """Create an instance of AgentResource from a dict"""
+        """Create an instance of ModelV1 from a dict"""
         if obj is None:
             return None
 
@@ -89,11 +85,7 @@ class AgentResource(BaseModel):
         _obj = cls.model_validate({
             "id": obj.get("id"),
             "name": obj.get("name"),
-            "description": obj.get("description"),
-            "instructions": obj.get("instructions"),
-            "tools": obj.get("tools"),
-            "mcp_servers": obj.get("mcp_servers"),
-            "model": obj.get("model") if obj.get("model") is not None else 'gemini/gemini-3.5-flash'
+            "provider": obj.get("provider")
         })
         return _obj
 

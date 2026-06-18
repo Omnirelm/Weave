@@ -17,24 +17,26 @@ import pprint
 import re  # noqa: F401
 import json
 
-from pydantic import BaseModel, ConfigDict, StrictStr
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt
 from typing import Any, ClassVar, Dict, List, Optional
+from .model_v1 import ModelV1
 from typing import Optional, Set
 from typing_extensions import Self
 from pydantic_core import to_jsonable_python
 
-class AgentResource(BaseModel):
+class ModelsPageResponse(BaseModel):
     """
-    AgentResource
+    ModelsPageResponse
     """ # noqa: E501
-    id: StrictStr
-    name: StrictStr
-    description: StrictStr
-    instructions: StrictStr
-    tools: Optional[List[StrictStr]] = None
-    mcp_servers: Optional[List[StrictStr]] = None
-    model: Optional[StrictStr] = 'gemini/gemini-3.5-flash'
-    __properties: ClassVar[List[str]] = ["id", "name", "description", "instructions", "tools", "mcp_servers", "model"]
+    total: StrictInt = Field(description="Total number of contents", json_schema_extra={"examples": [100]})
+    page: StrictInt = Field(description="Page number", json_schema_extra={"examples": [0]})
+    size: StrictInt = Field(description="Page size", json_schema_extra={"examples": [10]})
+    total_pages: StrictInt = Field(description="Total number of pages", json_schema_extra={"examples": [10]})
+    has_more: Optional[StrictBool] = Field(default=None, description="Whether there are more pages", json_schema_extra={"examples": [True]})
+    is_first: Optional[StrictBool] = Field(default=None, description="Whether this is the first page", json_schema_extra={"examples": [True]})
+    is_last: Optional[StrictBool] = Field(default=None, description="Whether this is the last page", json_schema_extra={"examples": [True]})
+    items: List[ModelV1]
+    __properties: ClassVar[List[str]] = ["total", "page", "size", "total_pages", "has_more", "is_first", "is_last", "items"]
 
     model_config = ConfigDict(
         validate_by_name=True,
@@ -54,7 +56,7 @@ class AgentResource(BaseModel):
 
     @classmethod
     def from_json(cls, json_str: str) -> Optional[Self]:
-        """Create an instance of AgentResource from a JSON string"""
+        """Create an instance of ModelsPageResponse from a JSON string"""
         return cls.from_dict(json.loads(json_str))
 
     def to_dict(self) -> Dict[str, Any]:
@@ -75,11 +77,18 @@ class AgentResource(BaseModel):
             exclude=excluded_fields,
             exclude_none=True,
         )
+        # override the default output from pydantic by calling `to_dict()` of each item in items (list)
+        _items = []
+        if self.items:
+            for _item_items in self.items:
+                if _item_items:
+                    _items.append(_item_items.to_dict())
+            _dict['items'] = _items
         return _dict
 
     @classmethod
     def from_dict(cls, obj: Optional[Dict[str, Any]]) -> Optional[Self]:
-        """Create an instance of AgentResource from a dict"""
+        """Create an instance of ModelsPageResponse from a dict"""
         if obj is None:
             return None
 
@@ -87,13 +96,14 @@ class AgentResource(BaseModel):
             return cls.model_validate(obj)
 
         _obj = cls.model_validate({
-            "id": obj.get("id"),
-            "name": obj.get("name"),
-            "description": obj.get("description"),
-            "instructions": obj.get("instructions"),
-            "tools": obj.get("tools"),
-            "mcp_servers": obj.get("mcp_servers"),
-            "model": obj.get("model") if obj.get("model") is not None else 'gemini/gemini-3.5-flash'
+            "total": obj.get("total"),
+            "page": obj.get("page"),
+            "size": obj.get("size"),
+            "total_pages": obj.get("total_pages"),
+            "has_more": obj.get("has_more"),
+            "is_first": obj.get("is_first"),
+            "is_last": obj.get("is_last"),
+            "items": [ModelV1.from_dict(_item) for _item in obj["items"]] if obj.get("items") is not None else None
         })
         return _obj
 

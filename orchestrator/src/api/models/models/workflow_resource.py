@@ -18,7 +18,7 @@ import re  # noqa: F401
 import json
 
 from pydantic import BaseModel, ConfigDict, StrictStr
-from typing import Any, ClassVar, Dict, List, Optional
+from typing import Any, ClassVar, Dict, List
 from .workflow_edge_resource import WorkflowEdgeResource
 from .workflow_node_resource import WorkflowNodeResource
 from typing import Optional, Set

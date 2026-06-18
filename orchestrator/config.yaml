@@ -41,6 +41,8 @@ auth:
     - methods: [GET]
       path: /health
     - methods: [GET]
+      path: /models
+    - methods: [GET]
       path: /docs
     - methods: [GET]
       path: /redoc
@@ -50,10 +52,9 @@ auth:
       path: /tenants
   # Path regex + methods → plan_quotas.operation. First match wins.
   quota_routes:
-    - path_pattern: "^/tasks/run$"
+    - path_pattern: "^/tenants/[^/]+/runs$"
       methods: [POST]
       operation: task_run
-      tenant_in_body: true
     - path_pattern: "^/tenants/[^/]+/agents$"
       methods: [POST]
       operation: agent_max

@@ -79,8 +79,10 @@ async def test_compiler_builds_sequential_workflow_with_single_turn_agents() -> 
     by_name = {n.name: n for n in llm_nodes}
     assert "Generate PPL query" in by_name["agent_ppl_generation"].instruction
     assert "{objective?}" in by_name["agent_ppl_generation"].instruction
+    assert by_name["agent_ppl_generation"].static_instruction == "run"
     assert "Fetch logs and analyze" in by_name["agent_fetch_and_analyze"].instruction
     assert "{agent_ppl_generation_out?}" in by_name["agent_fetch_and_analyze"].instruction
+    assert by_name["agent_fetch_and_analyze"].static_instruction == "run"
     for node in llm_nodes:
         assert node.output_schema is None
         assert node.mode == "single_turn"

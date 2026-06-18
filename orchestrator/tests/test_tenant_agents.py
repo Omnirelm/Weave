@@ -158,5 +158,5 @@ async def test_run_task_unknown_agent_uses_storage_404() -> None:
         agent_id="nope",
     )
     with pytest.raises(HTTPException) as ei:
-        await tasks_routes.run_task(body, request)
+        await tasks_routes.run_task(body.slug, body, request)
     assert ei.value.status_code == 404

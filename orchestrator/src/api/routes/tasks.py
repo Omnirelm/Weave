@@ -8,14 +8,14 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, HTTPException, Request
 
-from src.api.models.schemas import RunTaskRequest, RunTaskResponse
+from src.api.models.schemas import RunTaskRequest, RunTaskResponse, TaskRunResponse
 from src.api.translators.tasks import RunTaskRequestDomain, run_task_request_to_domain
 from src.core.orchestration.service import execute_run_task
 from src.storage.interface import StorageGateway
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/tasks", tags=["tasks"])
+router = APIRouter(tags=["runs"])
 
 
 async def _persist_task_run_record(
@@ -76,8 +76,13 @@ async def _return_with_persisted_run(
     return response
 
 
-@router.post("/run", response_model=RunTaskResponse)
-async def run_task(body: RunTaskRequest, request: Request) -> RunTaskResponse:
+@router.post("/tenants/{slug}/runs", response_model=RunTaskResponse)
+async def run_task(slug: str, body: RunTaskRequest, request: Request) -> RunTaskResponse:
+    if body.slug != slug:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Tenant slug in body {body.slug!r} does not match path {slug!r}",
+        )
     domain_body = run_task_request_to_domain(body)
 
     storage: StorageGateway = request.app.state.storage
@@ -120,3 +125,82 @@ async def run_task(body: RunTaskRequest, request: Request) -> RunTaskResponse:
         response=response,
         state_step_detail=state.step_execution_detail,
     )
+
+
+async def _require_tenant(storage: StorageGateway, slug: str) -> None:
+    if await storage.tenants.get_by_slug(slug) is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Tenant not found: {slug}",
+        )
+
+
+@router.get("/tenants/{slug}/runs", response_model=list[TaskRunResponse])
+async def list_runs(slug: str, request: Request) -> list[TaskRunResponse]:
+    storage: StorageGateway = request.app.state.storage
+    await _require_tenant(storage, slug)
+    try:
+        rows = await storage.task_runs.list_for_tenant(slug)
+        return [
+            TaskRunResponse(
+                id=row.id,
+                tenant_slug=row.tenant_slug,
+                success=row.success,
+                objective=row.objective,
+                agent_id=row.agent_id,
+                workflow_id=row.workflow_id,
+                request_input=row.request_input,
+                output=row.output,
+                summary=row.summary,
+                reasoning=row.reasoning,
+                error=row.error,
+                step_execution_detail=row.step_execution_detail,
+                cost=row.cost,
+                started_at=row.started_at,
+                finished_at=row.finished_at,
+            )
+            for row in rows
+        ]
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to list task runs: {exc}",
+        ) from exc
+
+
+@router.get("/tenants/{slug}/runs/{run_id}", response_model=TaskRunResponse)
+async def get_run(slug: str, run_id: uuid.UUID, request: Request) -> TaskRunResponse:
+    storage: StorageGateway = request.app.state.storage
+    await _require_tenant(storage, slug)
+    try:
+        row = await storage.task_runs.get_for_tenant(slug, run_id)
+        if row is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Task run not found: {run_id}",
+            )
+        return TaskRunResponse(
+            id=row.id,
+            tenant_slug=row.tenant_slug,
+            success=row.success,
+            objective=row.objective,
+            agent_id=row.agent_id,
+            workflow_id=row.workflow_id,
+            request_input=row.request_input,
+            output=row.output,
+            summary=row.summary,
+            reasoning=row.reasoning,
+            error=row.error,
+            step_execution_detail=row.step_execution_detail,
+            cost=row.cost,
+            started_at=row.started_at,
+            finished_at=row.finished_at,
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to get task run: {exc}",
+        ) from exc
+

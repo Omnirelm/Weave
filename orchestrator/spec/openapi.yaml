@@ -364,6 +364,20 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ToolsPageResponse"
+  /models:
+    get:
+      tags:
+        - dictionary
+      summary: List supported AI models
+      operationId: getModels
+      security: []
+      responses:
+        "200":
+          description: List of supported models
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ModelsPageResponse"
   /tasks/run:
     post:
       tags: 
@@ -514,6 +528,35 @@ components:
           type: boolean
           description: Whether this is the last page
           example: true
+
+    ModelsPageResponse:
+      allOf:
+        - $ref: "#/components/schemas/Page"
+        - type: object
+          required:
+            - items
+          properties:
+            items:
+              type: array
+              items:
+                $ref: "#/components/schemas/ModelV1"
+    ModelV1:
+      type: object
+      required:
+        - id
+        - name
+        - provider
+      properties: 
+        id: 
+          type: string
+        name:
+          type: string
+        provider:
+          type: string
+      example:
+        id: "gemini/gemini-3.5-flash"
+        name: "Gemini 3.5 Flash"
+        provider: "gemini"
 
     ToolsPageResponse:
       allOf:

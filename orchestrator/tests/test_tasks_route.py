@@ -85,7 +85,7 @@ async def test_run_task_executes_agent() -> None:
         input="Logs from checkout:\n```json\n{\"service\":\"checkout\"}\n```",
     )
 
-    response = await tasks.run_task(body, req)
+    response = await tasks.run_task(body.slug, body, req)
 
     assert len(runner.calls) == 1
     assert runner.calls[0][0] == "log_analysis"
@@ -130,7 +130,7 @@ async def test_run_task_accepts_string_input_without_validation() -> None:
         agent_id="log_analysis",
         input="free-form context",
     )
-    response = await tasks.run_task(body, req)
+    response = await tasks.run_task(body.slug, body, req)
     assert response.success is True
     assert len(runner.calls) == 1
 
@@ -144,6 +144,91 @@ async def test_run_task_agent_failure_returns_error() -> None:
         slug="default",
         agent_id="log_analysis",
     )
-    response = await tasks.run_task(body, req)
+    response = await tasks.run_task(body.slug, body, req)
     assert response.success is False
     assert response.error == "agent blew up"
+
+
+@pytest.mark.asyncio
+async def test_list_runs_returns_runs() -> None:
+    req = MagicMock()
+    storage = MagicMock()
+    storage.tenants = MagicMock(get_by_slug=AsyncMock(return_value=SimpleNamespace(slug="default")))
+    
+    import uuid
+    from datetime import datetime, timezone
+    run1 = SimpleNamespace(
+        id=uuid.uuid4(),
+        tenant_slug="default",
+        success=True,
+        objective="obj1",
+        agent_id="agent1",
+        workflow_id=None,
+        request_input="input1",
+        output={"out": "1"},
+        summary=None,
+        reasoning="reason1",
+        error=None,
+        step_execution_detail={"steps": []},
+        cost=None,
+        started_at=datetime.now(timezone.utc),
+        finished_at=datetime.now(timezone.utc),
+    )
+    storage.task_runs = MagicMock(list_for_tenant=AsyncMock(return_value=[run1]))
+    req.app.state.storage = storage
+
+    response = await tasks.list_runs("default", req)
+    assert len(response) == 1
+    assert response[0].id == run1.id
+    assert response[0].objective == "obj1"
+    storage.task_runs.list_for_tenant.assert_awaited_once_with("default")
+
+
+@pytest.mark.asyncio
+async def test_get_run_returns_run() -> None:
+    req = MagicMock()
+    storage = MagicMock()
+    storage.tenants = MagicMock(get_by_slug=AsyncMock(return_value=SimpleNamespace(slug="default")))
+    
+    import uuid
+    from datetime import datetime, timezone
+    run_id = uuid.uuid4()
+    run = SimpleNamespace(
+        id=run_id,
+        tenant_slug="default",
+        success=True,
+        objective="obj1",
+        agent_id="agent1",
+        workflow_id=None,
+        request_input="input1",
+        output={"out": "1"},
+        summary=None,
+        reasoning="reason1",
+        error=None,
+        step_execution_detail={"steps": []},
+        cost=None,
+        started_at=datetime.now(timezone.utc),
+        finished_at=datetime.now(timezone.utc),
+    )
+    storage.task_runs = MagicMock(get_for_tenant=AsyncMock(return_value=run))
+    req.app.state.storage = storage
+
+    response = await tasks.get_run("default", run_id, req)
+    assert response.id == run_id
+    assert response.objective == "obj1"
+    storage.task_runs.get_for_tenant.assert_awaited_once_with("default", run_id)
+
+
+@pytest.mark.asyncio
+async def test_get_run_not_found_raises_http_exception() -> None:
+    req = MagicMock()
+    storage = MagicMock()
+    storage.tenants = MagicMock(get_by_slug=AsyncMock(return_value=SimpleNamespace(slug="default")))
+    storage.task_runs = MagicMock(get_for_tenant=AsyncMock(return_value=None))
+    req.app.state.storage = storage
+
+    import uuid
+    with pytest.raises(HTTPException) as exc_info:
+        await tasks.get_run("default", uuid.uuid4(), req)
+    assert exc_info.value.status_code == 404
+

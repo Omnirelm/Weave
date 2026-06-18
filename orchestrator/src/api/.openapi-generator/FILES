@@ -14,6 +14,8 @@ models/models/log_source_o_auth_config_v1.py
 models/models/log_source_v1.py
 models/models/loki_v1.py
 models/models/mcp_server_v1.py
+models/models/model_v1.py
+models/models/models_page_response.py
 models/models/open_search_v1.py
 models/models/page.py
 models/models/run_task_request.py

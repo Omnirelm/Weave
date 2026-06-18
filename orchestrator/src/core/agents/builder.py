@@ -50,18 +50,20 @@ class AgentBuilder:
         if mcp_toolsets is not None:
             tools.extend(mcp_toolsets)
 
-        instruction = agent.instructions
+        static_instruction = agent.instructions
         if workflow_mode and step_objective is not None:
-            instruction = build_workflow_agent_instruction(
-                instruction,
+            dynamic_instruction = build_workflow_agent_instruction(
                 step_objective=step_objective,
                 prior_output_keys=prior_output_keys or [],
             )
+        else:
+            dynamic_instruction = "Run objective: {objective?}"
 
         kwargs: dict[str, Any] = {
             "name": f"agent_{agent.id}",
             "model": LiteLlm(model=agent.model),
-            "instruction": instruction,
+            "static_instruction": static_instruction,
+            "instruction": dynamic_instruction,
             "tools": tools,
             "include_contents": "none",
             "output_key": f"agent_{agent.id}_out",
