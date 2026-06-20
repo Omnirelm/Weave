@@ -10,11 +10,11 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from google.genai import types
-from opentelemetry import trace
 
-from src.core.adk.session import build_runner, create_task_session
+from src.core.adk.session import build_runner, calculate_tokens_by_author, create_task_session
 from src.core.base import InvocationCost
 from src.core.output import OutputError, coerce_output
+from src.core.telemetry import set_weave_context
 from src.core.workflows.base import WorkflowDef
 from src.core.workflows.compiler import WorkflowCompileResult, WorkflowCompiler
 from src.storage.interface import StorageGateway
@@ -86,21 +86,6 @@ def _workflow_log_suffix(
     return " ".join(parts)
 
 
-def _annotate_workflow_span(
-    *,
-    task_id: uuid.UUID | None,
-    tenant_id: str,
-    workflow_id: str,
-) -> None:
-    span = trace.get_current_span()
-    if not span.is_recording():
-        return
-    if task_id is not None:
-        span.set_attribute("weave.task_id", str(task_id))
-    span.set_attribute("weave.tenant_id", tenant_id)
-    span.set_attribute("weave.workflow_id", workflow_id)
-
-
 def _workflow_session_state(payload: dict[str, Any]) -> dict[str, str]:
     """Seed ADK session state for workflow instruction placeholders."""
     objective = payload.get("objective")
@@ -151,40 +136,36 @@ class WorkflowRunner:
                 workflow_id=workflow_id,
             ),
         )
-        _annotate_workflow_span(
-            task_id=task_id,
-            tenant_id=tenant_id,
-            workflow_id=workflow_id,
-        )
 
-        try:
-            compiled = await self._compiler.compile(
-                workflow_def,
-                tenant_slug=tenant_id,
-                storage=self._storage,
+        with set_weave_context(tenant_id=tenant_id, task_id=str(task_id) if task_id else None):
+            try:
+                compiled = await self._compiler.compile(
+                    workflow_def,
+                    tenant_slug=tenant_id,
+                    storage=self._storage,
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.exception("Workflow compile failed: %s", workflow_id)
+                return WorkflowResult(success=False, error=str(exc))
+
+            logger.info(
+                "workflow.compile.done %s",
+                _workflow_log_suffix(
+                    task_id=task_id,
+                    tenant_id=tenant_id,
+                    workflow_id=workflow_id,
+                    node_order=",".join(compiled.node_order),
+                    agent_count=len(compiled.node_order),
+                ),
             )
-        except Exception as exc:  # noqa: BLE001
-            logger.exception("Workflow compile failed: %s", workflow_id)
-            return WorkflowResult(success=False, error=str(exc))
 
-        logger.info(
-            "workflow.compile.done %s",
-            _workflow_log_suffix(
+            return await self._execute_compiled(
+                workflow_def,
+                compiled,
+                payload,
+                tenant_id,
                 task_id=task_id,
-                tenant_id=tenant_id,
-                workflow_id=workflow_id,
-                node_order=",".join(compiled.node_order),
-                agent_count=len(compiled.node_order),
-            ),
-        )
-
-        return await self._execute_compiled(
-            workflow_def,
-            compiled,
-            payload,
-            tenant_id,
-            task_id=task_id,
-        )
+            )
 
     async def _execute_compiled(
         self,
@@ -361,43 +342,56 @@ class WorkflowRunner:
                         ),
                     )
 
-            if not steps_completed:
+            try:
                 loaded = await runner.session_service.get_session(
                     app_name=runner.app_name,
                     user_id="system",
                     session_id=session.id,
                 )
-                if loaded is not None:
-                    for agent_id in compiled.agents_by_id:
-                        key = f"agent_{agent_id}_out"
-                        if key not in loaded.state:
-                            continue
-                        author = f"agent_{agent_id}"
-                        if author in outputs_by_author:
-                            continue
-                        node_id = compiled.agent_name_to_node_id.get(author)
-                        if node_id is None:
-                            continue
-                        try:
-                            validated_output = coerce_output(loaded.state[key])
-                        except OutputError as exc:
-                            workflow_error = str(exc)
-                            break
-                        outputs_by_author[author] = validated_output
-                        step_cost = InvocationCost(
-                            label=f"agent:{agent_id}",
-                            total_tokens=tokens_by_author.get(author, 0),
+            except (TypeError, AttributeError):
+                loaded = None
+
+            if loaded is not None and getattr(loaded, "events", None) is not None:
+                tokens_by_author = calculate_tokens_by_author(loaded.events)
+
+            if not steps_completed and loaded is not None:
+                for agent_id in compiled.agents_by_id:
+                    key = f"agent_{agent_id}_out"
+                    if key not in loaded.state:
+                        continue
+                    author = f"agent_{agent_id}"
+                    if author in outputs_by_author:
+                        continue
+                    node_id = compiled.agent_name_to_node_id.get(author)
+                    if node_id is None:
+                        continue
+                    try:
+                        validated_output = coerce_output(loaded.state[key])
+                    except OutputError as exc:
+                        workflow_error = str(exc)
+                        break
+                    outputs_by_author[author] = validated_output
+                    step_cost = InvocationCost(
+                        label=f"agent:{agent_id}",
+                        total_tokens=tokens_by_author.get(author, 0),
+                    )
+                    cost_children.append(step_cost)
+                    steps_completed.append(
+                        WorkflowStepResult(
+                            step_id=node_id,
+                            objective=compiled.node_objectives.get(node_id) or agent_id,
+                            success=True,
+                            output=validated_output,
+                            cost=step_cost,
                         )
-                        cost_children.append(step_cost)
-                        steps_completed.append(
-                            WorkflowStepResult(
-                                step_id=node_id,
-                                objective=compiled.node_objectives.get(node_id) or agent_id,
-                                success=True,
-                                output=validated_output,
-                                cost=step_cost,
-                            )
-                        )
+                    )
+
+            # Update final step costs from the native session events
+            for step in steps_completed:
+                if step.cost:
+                    agent_id = step.cost.label.split(":")[-1]
+                    author = f"agent_{agent_id}"
+                    step.cost.total_tokens = tokens_by_author.get(author, 0)
 
             if workflow_error:
                 total_tokens = sum(c.total_tokens for c in cost_children)

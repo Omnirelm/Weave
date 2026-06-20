@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from google.adk.agents import LlmAgent
-from google.adk.workflow import Workflow
+from google.adk.workflow import RetryConfig, Workflow
 
 from src.core.agents.base import AgentDef
 from src.core.agents.builder import AgentBuilder
@@ -59,12 +59,23 @@ class WorkflowCompiler:
             agent = AgentDef.model_validate(row.definition)
             agents_by_id[agent.id] = agent
             step_objective = node.objective or node_id
+
+            adk_retry_config = None
+            if node.max_retries is not None:
+                adk_retry_config = RetryConfig(
+                    max_attempts=node.max_retries,
+                    initial_delay=node.initial_delay_seconds if node.initial_delay_seconds is not None else 1.0,
+                    backoff_factor=node.backoff_factor if node.backoff_factor is not None else 2.0,
+                    jitter=1.0,
+                )
+
             llm_agent = await self._agent_builder.build_llm_agent_for_tenant(
                 agent,
                 tenant_slug,
                 workflow_mode=True,
                 step_objective=step_objective,
                 prior_output_keys=list(prior_output_keys),
+                retry_config=adk_retry_config,
             )
             llm_agents.append(llm_agent)
             agent_name_to_node_id[llm_agent.name] = node_id

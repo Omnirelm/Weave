@@ -13,6 +13,9 @@ from src.core.tools.provider import ToolProvider
 from src.core.agents.workflow_instructions import build_workflow_agent_instruction
 
 
+from google.adk.workflow import RetryConfig
+
+
 class AgentBuilder:
     """Resolves tools/MCP and constructs LlmAgent nodes for direct and workflow execution."""
 
@@ -43,6 +46,7 @@ class AgentBuilder:
         workflow_mode: bool = False,
         step_objective: str | None = None,
         prior_output_keys: list[str] | None = None,
+        retry_config: RetryConfig | None = None,
     ) -> LlmAgent:
         tools: list[Any] = []
         if fn_tools is not None:
@@ -68,8 +72,11 @@ class AgentBuilder:
             "include_contents": "none",
             "output_key": f"agent_{agent.id}_out",
         }
+        if retry_config is not None:
+            kwargs["retry_config"] = retry_config
         if workflow_mode:
             kwargs["mode"] = "single_turn"
+
         return LlmAgent(**kwargs)
 
     async def build_llm_agent_for_tenant(
@@ -80,6 +87,7 @@ class AgentBuilder:
         workflow_mode: bool = False,
         step_objective: str | None = None,
         prior_output_keys: list[str] | None = None,
+        retry_config: RetryConfig | None = None,
     ) -> LlmAgent:
         fn_tools = await self._resolve_function_tools(agent, tenant_id)
         mcp_toolsets = await self._resolve_mcp_toolsets(agent, tenant_id)
@@ -90,4 +98,5 @@ class AgentBuilder:
             workflow_mode=workflow_mode,
             step_objective=step_objective,
             prior_output_keys=prior_output_keys,
+            retry_config=retry_config,
         )

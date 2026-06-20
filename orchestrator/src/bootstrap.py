@@ -7,11 +7,7 @@ import os
 
 from fastapi import FastAPI
 from opentelemetry import trace
-from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
-from opentelemetry.sdk.resources import Resource
-from opentelemetry.sdk.trace import TracerProvider
-from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from sqlalchemy.engine import make_url
 
 from src.config.settings import get_config
@@ -87,28 +83,13 @@ def _setup_tracing(app: FastAPI) -> None:
     """Configure ADK OpenTelemetry exporters and optional FastAPI HTTP spans."""
     if os.getenv("OTEL_ENABLED", "").lower() not in ("1", "true", "yes"):
         return
-    endpoint = os.getenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT") or os.getenv(
-        "OTEL_EXPORTER_OTLP_ENDPOINT"
-    )
-    if not endpoint:
-        logger.warning("OTEL_ENABLED but no OTLP endpoint configured — tracing disabled")
-        return
 
-    service_name = os.getenv("OTEL_SERVICE_NAME", "orchestrator")
-    use_tls = endpoint.startswith("https://")
-    grpc_endpoint = endpoint.removeprefix("http://").removeprefix("https://")
-    provider = TracerProvider(resource=Resource.create({"service.name": service_name}))
-    provider.add_span_processor(
-        BatchSpanProcessor(
-            OTLPSpanExporter(endpoint=grpc_endpoint, insecure=not use_tls),
-        )
-    )
-    trace.set_tracer_provider(provider)
-    logger.info(
-        "OpenTelemetry tracing enabled (service=%s, endpoint=%s)",
-        service_name,
-        grpc_endpoint,
-    )
+    from google.adk.telemetry.setup import OTelHooks, maybe_set_otel_providers
+    from src.core.telemetry import WeaveSpanProcessor
+
+    hooks = OTelHooks(span_processors=[WeaveSpanProcessor()])
+    maybe_set_otel_providers(otel_hooks_to_setup=[hooks])
+    logger.info("OpenTelemetry tracing enabled via ADK native providers")
 
     FastAPIInstrumentor.instrument_app(app)
 

@@ -13,6 +13,7 @@ from src.core.agents.base import AgentDef, AgentResult
 from src.core.agents.builder import AgentBuilder
 from src.core.base import InvocationCost
 from src.core.output import OutputError, coerce_output
+from src.core.telemetry import set_weave_context
 from src.storage.interface import StorageGateway
 
 logger = logging.getLogger(__name__)
@@ -59,23 +60,24 @@ class AgentRunner:
             return AgentResult(success=False, error=f"Invalid agent definition: {exc}")
 
         try:
-            llm_agent = await self._resolve_and_build_llm_agent(agent, tenant_id)
-            runner = build_runner(llm_agent)
-            session = await create_task_session(
-                runner,
-                state=_initial_session_state(input_payload=input_payload),
-            )
-            text, tokens = await run_runner_turn(
-                runner, session, json.dumps(input_payload)
-            )
-            key = llm_agent.output_key or f"agent_{agent.id}_out"
-            raw = session.state.get(key) if key in session.state else text
-            output = coerce_output(raw)
-            cost = InvocationCost(
-                label=f"agent:{agent.id}",
-                total_tokens=tokens,
-            )
-            return AgentResult(success=True, output=output, cost=cost)
+            with set_weave_context(tenant_id=tenant_id):
+                llm_agent = await self._resolve_and_build_llm_agent(agent, tenant_id)
+                runner = build_runner(llm_agent)
+                session = await create_task_session(
+                    runner,
+                    state=_initial_session_state(input_payload=input_payload),
+                )
+                text, tokens = await run_runner_turn(
+                    runner, session, json.dumps(input_payload)
+                )
+                key = llm_agent.output_key or f"agent_{agent.id}_out"
+                raw = session.state.get(key) if key in session.state else text
+                output = coerce_output(raw)
+                cost = InvocationCost(
+                    label=f"agent:{agent.id}",
+                    total_tokens=tokens,
+                )
+                return AgentResult(success=True, output=output, cost=cost)
         except OutputError as exc:
             return AgentResult(success=False, error=str(exc))
         except Exception as exc:  # noqa: BLE001

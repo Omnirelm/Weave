@@ -10,6 +10,9 @@ class WorkflowNodeDef(BaseModel):
     type: Literal["agent"] = "agent"
     agent_id: str
     objective: str | None = None
+    max_retries: int | None = None
+    initial_delay_seconds: float | None = None
+    backoff_factor: float | None = None
 
 
 class WorkflowEdgeDef(BaseModel):
