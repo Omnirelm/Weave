@@ -13,7 +13,8 @@ tags:
   - name: dictionary
   - name: tenant
   - name: integration
-  - name: skill
+  - name: agent
+  - name: workflow
   - name: task
   
 paths:
@@ -29,30 +30,30 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthResponse"
-  /tenants/{slug}/skills:
+  /tenants/{slug}/agents:
     get:
       tags:
-        - skill
-      summary: List skills
-      operationId: listSkills
+        - agent
+      summary: List agents
+      operationId: listAgents
       parameters:
         - $ref: "#/components/parameters/TenantId"
       responses:
         "200":
-          description: Skills list
+          description: Agents list
           content:
             application/json:
               schema:
                 type: array
                 items:
-                  $ref: "#/components/schemas/SkillResource"
+                  $ref: "#/components/schemas/AgentResource"
         "500":
           $ref: "#/components/responses/InternalError"
     post:
       tags:
-        - skill
-      summary: Save a skill
-      operationId: saveSkill
+        - agent
+      summary: Save an agent
+      operationId: saveAgent
       parameters:
         - $ref: "#/components/parameters/TenantId"
       requestBody:
@@ -60,14 +61,14 @@ paths:
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/SkillResource"
+              $ref: "#/components/schemas/AgentResource"
       responses:
         "200":
-          description: Saved skill
+          description: Saved agent
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/SkillResource"
+                $ref: "#/components/schemas/AgentResource"
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -78,33 +79,33 @@ paths:
           $ref: "#/components/responses/TooManyRequests"
         "500":
           $ref: "#/components/responses/InternalError"
-  /tenants/{slug}/skills/{skill_id}:
+  /tenants/{slug}/agents/{agent_id}:
     get:
       tags: 
-        - skill
-      summary: Get a skill
-      operationId: getSkill
+        - agent
+      summary: Get an agent
+      operationId: getAgent
       parameters:
-        - $ref: "#/components/parameters/SkillId"
+        - $ref: "#/components/parameters/AgentId"
         - $ref: "#/components/parameters/TenantId"
       responses:
         "200":
-          description: Skill
+          description: Agent
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/SkillResource"
+                $ref: "#/components/schemas/AgentResource"
         "404":
           $ref: "#/components/responses/NotFound"
         "500":
           $ref: "#/components/responses/InternalError"
     delete:
       tags: 
-        - skill
-      summary: Delete a skill
-      operationId: deleteSkill
+        - agent
+      summary: Delete an agent
+      operationId: deleteAgent
       parameters:
-        - $ref: "#/components/parameters/SkillId"
+        - $ref: "#/components/parameters/AgentId"
         - $ref: "#/components/parameters/TenantId"
       responses:
         "204":
@@ -115,7 +116,93 @@ paths:
           $ref: "#/components/responses/NotFound"
         "500":
           $ref: "#/components/responses/InternalError"
-  
+  /tenants/{slug}/workflows:
+    get:
+      tags:
+        - workflow
+      summary: List workflows
+      operationId: listWorkflows
+      parameters:
+        - $ref: "#/components/parameters/TenantId"
+      responses:
+        "200":
+          description: Workflows list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/WorkflowResource"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    post:
+      tags:
+        - workflow
+      summary: Save a workflow
+      operationId: saveWorkflow
+      parameters:
+        - $ref: "#/components/parameters/TenantId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WorkflowResource"
+      responses:
+        "200":
+          description: Saved workflow
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkflowResource"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /tenants/{slug}/workflows/{workflow_id}:
+    get:
+      tags:
+        - workflow
+      summary: Get a workflow
+      operationId: getWorkflow
+      parameters:
+        - $ref: "#/components/parameters/WorkflowId"
+        - $ref: "#/components/parameters/TenantId"
+      responses:
+        "200":
+          description: Workflow
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkflowResource"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    delete:
+      tags:
+        - workflow
+      summary: Delete a workflow
+      operationId: deleteWorkflow
+      parameters:
+        - $ref: "#/components/parameters/WorkflowId"
+        - $ref: "#/components/parameters/TenantId"
+      responses:
+        "204":
+          description: Deleted
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
   /tenants:
     post:
       tags: 
@@ -277,6 +364,20 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ToolsPageResponse"
+  /models:
+    get:
+      tags:
+        - dictionary
+      summary: List supported AI models
+      operationId: getModels
+      security: []
+      responses:
+        "200":
+          description: List of supported models
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ModelsPageResponse"
   /tasks/run:
     post:
       tags: 
@@ -320,10 +421,15 @@ components:
       required: true
       schema:
         type: string
-        default: default
-    SkillId:
+    AgentId:
       in: path
-      name: skill_id
+      name: agent_id
+      required: true
+      schema:
+        type: string
+    WorkflowId:
+      in: path
+      name: workflow_id
       required: true
       schema:
         type: string
@@ -423,6 +529,35 @@ components:
           description: Whether this is the last page
           example: true
 
+    ModelsPageResponse:
+      allOf:
+        - $ref: "#/components/schemas/Page"
+        - type: object
+          required:
+            - items
+          properties:
+            items:
+              type: array
+              items:
+                $ref: "#/components/schemas/ModelV1"
+    ModelV1:
+      type: object
+      required:
+        - id
+        - name
+        - provider
+      properties: 
+        id: 
+          type: string
+        name:
+          type: string
+        provider:
+          type: string
+      example:
+        id: "gemini/gemini-3.5-flash"
+        name: "Gemini 3.5 Flash"
+        provider: "gemini"
+
     ToolsPageResponse:
       allOf:
         - $ref: "#/components/schemas/Page"
@@ -492,37 +627,7 @@ components:
           - label: executor
             total_tokens: 800
             children: []
-    SkillStepResource:
-      type: object
-      additionalProperties: false
-      required: [id, type, objective]
-      properties:
-        id:
-          type: string
-        type:
-          type: string
-          enum: [invoke_skill, invoke_tool, synthesize]
-        skill_id:
-          type: string
-          nullable: true
-        tool_id:
-          type: string
-          nullable: true
-        objective:
-          type: string
-        params:
-          type: object
-          additionalProperties: true
-          nullable: true
-      example:
-        id: step_01
-        type: invoke_tool
-        tool_id: get_logs
-        objective: Fetch recent error logs
-        params:
-          service: payments
-          lookback_minutes: 30
-    SkillResource:
+    AgentResource:
       type: object
       additionalProperties: false
       required: [id, name, description, instructions]
@@ -535,12 +640,7 @@ components:
           type: string
         instructions:
           type: string
-          default: ""
-        kind:
-          type: string
-          enum: [simple, composed]
-          default: simple
-        capabilities:
+        tools:
           type: array
           default: []
           items:
@@ -550,85 +650,127 @@ components:
           default: []
           items:
             type: string
-        steps:
-          type: array
-          default: []
-          items:
-            $ref: "#/components/schemas/SkillStepResource"
         model:
           type: string
-          default: gpt-5.1
-
-        input_schema:
-          type: object
-          additionalProperties: true
-          nullable: true
-        output_schema:
-          type: object
-          additionalProperties: true
-          nullable: true
+          default: gemini/gemini-3.5-flash
       example:
-        id: investigate_latency
-        name: Investigate Latency
-        description: Diagnose p95 latency regressions
-        instructions: Check logs and synthesize root cause.
-        kind: composed
-        capabilities:
-          - log_analysis
-          - dependency_mapping
-        mcp_servers:
-          - datadog
-        steps:
-          - id: step_01
-            type: invoke_tool
-            tool_id: query_logs
-            objective: Pull high-latency request logs
-            params:
-              service: checkout
-              threshold_ms: 500
-          - id: step_02
-            type: synthesize
-            objective: Summarize likely bottlenecks
-        model: gpt-5.1
-        input_schema:
+        id: log_analysis
+        name: Log Analysis
+        description: Analyze logs in an incident time window
+        instructions: You are an SRE log analysis agent.
+        tools: []
+        mcp_servers: []
+        model: gemini/gemini-3.5-flash
+
+    WorkflowNodeResource:
+      type: object
+      additionalProperties: false
+      required: [id, type, agent_id]
+      properties:
+        id:
+          type: string
+        type:
+          type: string
+          enum: [agent]
+          default: agent
+        agent_id:
+          type: string
+        objective:
+          type: string
+          nullable: true
+
+    WorkflowEdgeResource:
+      type: object
+      additionalProperties: false
+      required: [from_node]
+      properties:
+        from_node:
+          type: string
+          description: Source node id or START
+        to_nodes:
+          type: array
+          items:
+            type: string
+          default: []
+        routes:
           type: object
-          properties:
-            service:
-              type: string
-        output_schema:
-          type: object
-          properties:
-            root_cause:
-              type: string
-   
+          additionalProperties:
+            type: string
+          nullable: true
+          description: Conditional route map (route value to target node id)
+
+    WorkflowResource:
+      type: object
+      additionalProperties: false
+      required: [id, name, description, nodes, edges]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        nodes:
+          type: array
+          items:
+            $ref: "#/components/schemas/WorkflowNodeResource"
+        edges:
+          type: array
+          items:
+            $ref: "#/components/schemas/WorkflowEdgeResource"
+      example:
+        id: ppl_log_analysis
+        name: PPL Log RCA
+        description: Generate PPL query, fetch logs, produce RCA report, and identify code issues
+        nodes:
+          - id: ppl_generation
+            type: agent
+            agent_id: ppl_generation
+            objective: Generate PPL query
+          - id: fetch_and_analyze
+            type: agent
+            agent_id: fetch_and_analyze
+            objective: Fetch logs and produce RCA report
+          - id: code_analysis
+            type: agent
+            agent_id: git_inference
+            objective: Use log RCA findings to identify code issues in the repository
+        edges:
+          - from_node: START
+            to_nodes: [ppl_generation, fetch_and_analyze, code_analysis]
+
     RunTaskRequest:
       type: object
       additionalProperties: false
       required: [slug, objective]
+      description: >
+        Exactly one of agent_id or workflow_id must be provided (not both, not neither).
       properties:
         objective:
           type: string
         slug:
           type: string
-          default: default
-        skill_id:
+          description: Tenant slug that owns the agent or workflow.
+        workflow_id:
           type: string
-          description: If skill id not is not specified Orchestrator prepares a plan and then executes it.
-          nullable: true
+          description: Tenant workflow to execute for this task.
+        agent_id:
+          type: string
+          description: Tenant agent to run for this task (single-agent shortcut).
         input:
-          type: object
-          additionalProperties: true
+          type: string
           nullable: true
-          description: >
-            Optional key-value payload. Surfaced to the planner as task.input when planning without skill_id.
-            When skill_id is set, merged with orchestrator fields (objective, task, prior_steps) and validated
-            against that skill's input_schema when present.
+          description: Free-form natural language / markdown context for the task.
       example:
         objective: Investigate checkout errors after deployment
         slug: default
-        skill_id: investigate_latency
-        input:
-          alert_id: "chk-42"
+        workflow_id: ppl_log_analysis
+        input: |
+          Service checkout-api, window last 1h. Sample errors:
+
+          ```json
+          {"alert_id": "chk-42", "env": "prod"}
+          ```
     
     CreateTenantRequest:
       $ref: '#/components/schemas/TenantV1'
@@ -651,29 +793,10 @@ components:
         display_name: "X corp"
         plan_slug: starter
           
-    StepResultDto:
-      type: object
-      additionalProperties: false
-      required: [step_id, objective, success]
-      properties:
-        step_id:
-          type: string
-        objective:
-          type: string
-        success:
-          type: boolean
-        error:
-          type: string
-          nullable: true
-      example:
-        step_id: step_01
-        objective: Pull high-latency request logs
-        success: true
-        error: null
     RunTaskResponse:
       type: object
       additionalProperties: false
-      required: [task_id, success, steps_completed]
+      required: [task_id, success]
       properties:
         task_id:
           type: string
@@ -686,13 +809,7 @@ components:
           additionalProperties: true
           nullable: true
           description: >
-            When the request includes skill_id, the structured result from the preferred skill
-            invocation (validated against that skill's output_schema when present). Omitted when
-            skill_id is not set or no matching successful skill step was found.
-        steps_completed:
-          type: array
-          items:
-            $ref: "#/components/schemas/StepResultDto"
+            On success: output from the agent or workflow run.
         reasoning:
           type: string
           nullable: true
@@ -707,10 +824,6 @@ components:
         success: true
         output:
           root_cause: downstream payment timeouts
-        steps_completed:
-          - step_id: step_01
-            objective: Pull high-latency request logs
-            success: true
         reasoning: Timeouts started immediately after dependency rollout.
         error: null
         cost:
@@ -720,10 +833,10 @@ components:
 
     TenantIntegrationV1:
         type: object
-        description: Tenant integration is a configuration for a tenant integration.
+        description: >
+          Tenant integration configuration. On create, omit id and timestamps;
+          active defaults to true. Responses include id, created_at, and updated_at.
         required:
-          - id
-          - active
           - type
         properties:
           id:
@@ -734,6 +847,7 @@ components:
             example: "123e4567-e89b-12d3-a456-426614174000"
           active:
             type: boolean
+            default: true
             description: Whether the tenant integration is active.
             example: true
           created_at:
@@ -787,7 +901,7 @@ components:
         flavour:
           type: string
           description: >
-            Stable name used to reference this server from skill mcp_servers lists.
+            Stable name used to reference this server from agent mcp_servers lists.
             Examples: GITHUB, JIRA, CUSTOM_MCP.
           example: GITHUB
         transport:
@@ -819,13 +933,20 @@ components:
         cache_tools_list:
           type: boolean
           default: false
+        auth_mechanism:
+          $ref: '#/components/schemas/LogSourceAuthMechanismV1'
       example:
         type: MCP
         flavour: GITHUB
         transport: streamable_http
-        url: "https://api.githubcopilot.com/mcp/"
-        headers:
-          Authorization: "Bearer ghp_xxxx"
+        url: "https://example.com/mcp"
+        auth_mechanism:
+          oauth:
+            oauth_config:
+              client_id: "your-client-id"
+              client_secret: "your-client-secret"
+              token_url: "https://oauthserverurl/oauth2/token"
+              scope: "api://mcp/.default"
         timeout: 15
         cache_tools_list: true
 

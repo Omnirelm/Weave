@@ -25,7 +25,6 @@ models/models/run_task_response.py
 models/models/skill_resource.py
 models/models/skill_step_resource.py
 models/models/source_code_context_v1.py
-models/models/step_result_dto.py
 models/models/tenant_integration_type_v1.py
 models/models/tenant_integration_v1.py
 models/models/tenant_v1.py

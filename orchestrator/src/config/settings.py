@@ -82,6 +82,8 @@ class OrchestratorConfig(BaseModel):
     log_level: str = "INFO"
     config_file: str = "config.yaml"
     openai_api_key: str | None = None
+    gemini_api_key: str | None = None
+    anthropic_api_key: str | None = None
     cors: CorsConfig = Field(default_factory=CorsConfig)
     database: DatabaseConfig = Field(default_factory=DatabaseConfig)
     auth: AuthConfig = Field(default_factory=AuthConfig)
@@ -109,6 +111,13 @@ def _apply_runtime_env(config: OrchestratorConfig) -> None:
     """Hydrate runtime env from config where downstream SDKs expect env vars."""
     if config.openai_api_key and not os.getenv("OPENAI_API_KEY"):
         os.environ["OPENAI_API_KEY"] = config.openai_api_key
+    if config.gemini_api_key:
+        if not os.getenv("GEMINI_API_KEY"):
+            os.environ["GEMINI_API_KEY"] = config.gemini_api_key
+        if not os.getenv("GEMINI_API_KEY"):
+            os.environ["GEMINI_API_KEY"] = config.gemini_api_key
+    if config.anthropic_api_key and not os.getenv("ANTHROPIC_API_KEY"):
+        os.environ["ANTHROPIC_API_KEY"] = config.anthropic_api_key
 
 
 def load_config(path: str | Path | None = None) -> OrchestratorConfig:
@@ -120,6 +129,12 @@ def load_config(path: str | Path | None = None) -> OrchestratorConfig:
         "config_file": dynasettings.get("config_file", "config.yaml"),
         "openai_api_key": dynasettings.get(
             "openai_api_key", dynasettings.get("OPENAI_API_KEY", os.getenv("OPENAI_API_KEY"))
+        ),
+        "gemini_api_key": dynasettings.get(
+            "gemini_api_key", dynasettings.get("GEMINI_API_KEY", dynasettings.get("GEMINI_API_KEY", os.getenv("GEMINI_API_KEY") or os.getenv("GEMINI_API_KEY")))
+        ),
+        "anthropic_api_key": dynasettings.get(
+            "anthropic_api_key", dynasettings.get("ANTHROPIC_API_KEY", os.getenv("ANTHROPIC_API_KEY"))
         ),
         "cors": dynasettings.get("cors", {}),
         "database": dynasettings.get("database", {}),

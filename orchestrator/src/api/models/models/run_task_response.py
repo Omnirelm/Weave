@@ -21,7 +21,6 @@ from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictStr
 from typing import Any, ClassVar, Dict, List, Optional
 from uuid import UUID
 from .invocation_cost_dto import InvocationCostDto
-from .step_result_dto import StepResultDto
 from typing import Optional, Set
 from typing_extensions import Self
 from pydantic_core import to_jsonable_python
@@ -32,12 +31,11 @@ class RunTaskResponse(BaseModel):
     """ # noqa: E501
     task_id: UUID = Field(description="Server-generated identifier for this task run; matches the persisted task_runs row.")
     success: StrictBool
-    output: Optional[Dict[str, Any]] = Field(default=None, description="When the request includes skill_id, the structured result from the preferred skill invocation (validated against that skill's output_schema when present). Omitted when skill_id is not set or no matching successful skill step was found. ")
-    steps_completed: List[StepResultDto]
+    output: Optional[Dict[str, Any]] = Field(default=None, description="On success: output from the agent or workflow run. ")
     reasoning: Optional[StrictStr] = None
     error: Optional[StrictStr] = None
     cost: Optional[InvocationCostDto] = None
-    __properties: ClassVar[List[str]] = ["task_id", "success", "output", "steps_completed", "reasoning", "error", "cost"]
+    __properties: ClassVar[List[str]] = ["task_id", "success", "output", "reasoning", "error", "cost"]
 
     model_config = ConfigDict(
         validate_by_name=True,
@@ -78,13 +76,6 @@ class RunTaskResponse(BaseModel):
             exclude=excluded_fields,
             exclude_none=True,
         )
-        # override the default output from pydantic by calling `to_dict()` of each item in steps_completed (list)
-        _items = []
-        if self.steps_completed:
-            for _item_steps_completed in self.steps_completed:
-                if _item_steps_completed:
-                    _items.append(_item_steps_completed.to_dict())
-            _dict['steps_completed'] = _items
         # override the default output from pydantic by calling `to_dict()` of cost
         if self.cost:
             _dict['cost'] = self.cost.to_dict()
@@ -118,7 +109,6 @@ class RunTaskResponse(BaseModel):
             "task_id": obj.get("task_id"),
             "success": obj.get("success"),
             "output": obj.get("output"),
-            "steps_completed": [StepResultDto.from_dict(_item) for _item in obj["steps_completed"]] if obj.get("steps_completed") is not None else None,
             "reasoning": obj.get("reasoning"),
             "error": obj.get("error"),
             "cost": InvocationCostDto.from_dict(obj["cost"]) if obj.get("cost") is not None else None

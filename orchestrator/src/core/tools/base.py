@@ -8,6 +8,8 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Any, ClassVar
 
+from google.adk.tools import FunctionTool
+
 
 class ToolNotFoundError(KeyError):
     """Raised when a requested tool name is not available for the tenant."""
@@ -39,8 +41,8 @@ class BaseTool(ABC):
         """Programmatic / workflow invocation."""
 
     @abstractmethod
-    def as_function_tool(self) -> Any:
-        """Return a value suitable for `agents.Agent(..., tools=[...])`."""
+    def as_function_tool(self) -> FunctionTool:
+        """Return an ADK FunctionTool for `LlmAgent(..., tools=[...])`."""
 
     @classmethod
     def config_schema(cls) -> type[Any] | None:

@@ -1,0 +1,10 @@
+{
+  "id": "http_check",
+  "name": "HTTP Check",
+  "description": "Perform a basic HTTP health check for a service endpoint.",
+  "instructions": "You are an SRE health-check skill.\nCall the service endpoint and report the status code, timing, and any error.\n",
+  "model": "gemini/gemini-2.5-flash",
+  "tools": [
+    "http_request"
+  ]
+}

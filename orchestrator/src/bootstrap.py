@@ -1,16 +1,20 @@
-"""Application wiring: logging, tools, skills, and app.state (invoked once at startup)."""
+"""Application wiring: logging, tools, agents, and app.state (invoked once at startup)."""
 
 from __future__ import annotations
 
 import logging
-from pathlib import Path
+import os
 
 from fastapi import FastAPI
+from opentelemetry import trace
+from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from sqlalchemy.engine import make_url
 
 from src.config.settings import get_config
+from src.core.agents import AgentBuilder, AgentRunner
+from src.core.workflows.compiler import WorkflowCompiler
+from src.core.workflows.runner import WorkflowRunner
 from src.core.mcp.provider import McpProvider
-from src.core.skills import SkillRegistry, SkillRunner
 from src.core.tools.base import IntegrationTool
 from src.core.tools.provider import ToolProvider
 from src.integrations.http.tool import HttpTool
@@ -39,7 +43,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Integration tool registry
 #
-# Maps the stable tool name (as declared in skill YAML capabilities) to the
+# Maps the stable tool name (as declared in agent tools) to the
 # IntegrationTool class responsible for that tool. ToolProvider uses this at
 # request time to resolve tools from tenant_integrations rows.
 #
@@ -75,6 +79,21 @@ def _redact_db_url(url: str) -> str:
     return make_url(url).render_as_string(hide_password=True)
 
 
+def _setup_tracing(app: FastAPI) -> None:
+    """Configure ADK OpenTelemetry exporters and optional FastAPI HTTP spans."""
+    if os.getenv("OTEL_ENABLED", "").lower() not in ("1", "true", "yes"):
+        return
+
+    from google.adk.telemetry.setup import OTelHooks, maybe_set_otel_providers
+    from src.core.telemetry import WeaveSpanProcessor
+
+    hooks = OTelHooks(span_processors=[WeaveSpanProcessor()])
+    maybe_set_otel_providers(otel_hooks_to_setup=[hooks])
+    logger.info("OpenTelemetry tracing enabled via ADK native providers")
+
+    FastAPIInstrumentor.instrument_app(app)
+
+
 async def wire_application(app: FastAPI) -> None:
     """Build providers and attach them to app.state.
 
@@ -90,7 +109,7 @@ async def wire_application(app: FastAPI) -> None:
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
         force=True,
     )
-
+    _setup_tracing(app)
     storage = get_storage()
     try:
         await storage.db.ping()
@@ -123,11 +142,14 @@ async def wire_application(app: FastAPI) -> None:
     mcp_provider = McpProvider(storage=storage)
     logger.info("McpProvider ready (tenant MCP servers resolved from DB at request time)")
 
-    orchestrator_root = Path(__file__).resolve().parent.parent
-    skill_registry = SkillRegistry(skills_root=orchestrator_root / "skills")
+    agent_builder = AgentBuilder(tool_provider, mcp_provider)
+    workflow_compiler = WorkflowCompiler(agent_builder)
+    workflow_runner = WorkflowRunner(storage, workflow_compiler)
 
     app.state.tool_provider = tool_provider
     app.state.mcp_provider = mcp_provider
-    app.state.skill_registry = skill_registry
-    app.state.skill_runner = SkillRunner(storage, tool_provider, mcp_provider)
+    app.state.agent_builder = agent_builder
+    app.state.workflow_compiler = workflow_compiler
+    app.state.workflow_runner = workflow_runner
+    app.state.agent_runner = AgentRunner(storage, agent_builder)
     app.state.storage = storage

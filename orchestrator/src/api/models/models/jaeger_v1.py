@@ -31,8 +31,9 @@ class JaegerV1(BaseModel):
     type: StrictStr
     flavour: StrictStr
     url: StrictStr = Field(description="Jaeger query API base URL.", json_schema_extra={"examples": ["http://localhost:16686"]})
+    base_path: Optional[StrictStr] = Field(default=None, description="Optional path prefix before /api/v3 on the Jaeger query service (e.g. \"/jaeger/ui\" when jaeger_query.base_path is configured). ", alias="basePath", json_schema_extra={"examples": ["/jaeger/ui"]})
     auth_mechanism: Optional[LogSourceAuthMechanismV1] = None
-    __properties: ClassVar[List[str]] = ["type", "flavour", "url", "auth_mechanism"]
+    __properties: ClassVar[List[str]] = ["type", "flavour", "url", "basePath", "auth_mechanism"]
 
     @field_validator('type')
     def type_validate_enum(cls, value):
@@ -105,6 +106,7 @@ class JaegerV1(BaseModel):
             "type": obj.get("type"),
             "flavour": obj.get("flavour"),
             "url": obj.get("url"),
+            "basePath": obj.get("basePath"),
             "auth_mechanism": LogSourceAuthMechanismV1.from_dict(obj["auth_mechanism"]) if obj.get("auth_mechanism") is not None else None
         })
         return _obj

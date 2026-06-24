@@ -1,355 +1,234 @@
 from __future__ import annotations
 
-import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from fastapi import HTTPException
-
+from pydantic import ValidationError
+from src.api.models.schemas import RunTaskRequest
 from src.api.routes import tasks
-from src.api.translators.tasks import RunTaskRequestDomain
-from src.core.base import InvocationCost
-from src.core.skills import SkillResult, StepResult
+from src.core.agents import AgentResult
 
-_DEFAULT_SKILL_ROW = object()
+_DEFAULT_AGENT_ROW = object()
 
 
-def _log_analysis_skill_row(*, require_logs: bool) -> SimpleNamespace:
-    schema = None
-    if require_logs:
-        schema = {
-            "type": "object",
-            "required": ["logs"],
-            "properties": {"logs": {"type": "array"}},
-        }
+def _log_analysis_agent_row() -> SimpleNamespace:
     definition = {
         "id": "log_analysis",
         "name": "Log analysis",
         "description": "d",
         "instructions": "Analyze logs.",
-        "kind": "simple",
-        "capabilities": [],
+        "tools": [],
         "mcp_servers": [],
-        "steps": [],
         "model": "gpt-4.1",
-        "input_schema": schema,
-        "output_schema": None,
     }
-    return SimpleNamespace(skill_id="log_analysis", definition=definition)
+    return SimpleNamespace(agent_id="log_analysis", definition=definition)
 
 
 class _DummyRunner:
-    def __init__(self, skill_result: SkillResult) -> None:
-        self._skill_result = skill_result
+    def __init__(self, agent_result: AgentResult) -> None:
+        self._agent_result = agent_result
         self.calls: list[tuple[str, dict, str]] = []
 
-    async def list_tool_descriptors(self, tenant_id: str) -> list:
-        del tenant_id
-        return []
-
-    async def run_skill(
+    async def run_agent(
         self,
-        skill_id: str,
+        agent_id: str,
         input_payload: dict,
         tenant_id: str,
-        *,
-        _depth: int = 0,
-    ) -> SkillResult:
-        del _depth
-        self.calls.append((skill_id, input_payload, tenant_id))
-        return self._skill_result
+    ) -> AgentResult:
+        self.calls.append((agent_id, input_payload, tenant_id))
+        return self._agent_result
 
 
 def _request_with_runner(
     runner: _DummyRunner,
     *,
-    skill_row: SimpleNamespace | None | object = _DEFAULT_SKILL_ROW,
+    agent_row: SimpleNamespace | None | object = _DEFAULT_AGENT_ROW,
 ) -> SimpleNamespace:
-    """Build request.app.state with storage + runner.
-
-    skill_row:
-      - default: return log_analysis row without input schema (any input passes validation)
-      - None: get_for_tenant always returns None
-      - SimpleNamespace: always return this row for get_for_tenant
-    """
     storage = MagicMock()
     storage.tenants = MagicMock(get_by_slug=AsyncMock(return_value=SimpleNamespace(slug="default")))
 
-    if skill_row is None:
-        storage.tenant_skills = MagicMock(
-            get_for_tenant=AsyncMock(return_value=None),
-            list_for_tenant=AsyncMock(return_value=[]),
-        )
-    elif skill_row is _DEFAULT_SKILL_ROW:
-        row = _log_analysis_skill_row(require_logs=False)
-        storage.tenant_skills = MagicMock(
-            get_for_tenant=AsyncMock(return_value=row),
-            list_for_tenant=AsyncMock(return_value=[]),
-        )
+    if agent_row is None:
+        storage.tenant_agents = MagicMock(get_for_tenant=AsyncMock(return_value=None))
+    elif agent_row is _DEFAULT_AGENT_ROW:
+        row = _log_analysis_agent_row()
+        storage.tenant_agents = MagicMock(get_for_tenant=AsyncMock(return_value=row))
     else:
-        assert isinstance(skill_row, SimpleNamespace)
-        storage.tenant_skills = MagicMock(
-            get_for_tenant=AsyncMock(return_value=skill_row),
-            list_for_tenant=AsyncMock(return_value=[]),
-        )
+        assert isinstance(agent_row, SimpleNamespace)
+        storage.tenant_agents = MagicMock(get_for_tenant=AsyncMock(return_value=agent_row))
 
     storage.task_runs = MagicMock()
     storage.task_runs.create = AsyncMock(return_value=SimpleNamespace())
 
+    workflow_runner = MagicMock()
+
     return SimpleNamespace(
         app=SimpleNamespace(
-            state=SimpleNamespace(skill_runner=runner, storage=storage),
+            state=SimpleNamespace(
+                agent_runner=runner,
+                workflow_runner=workflow_runner,
+                storage=storage,
+            ),
         )
     )
 
 
 @pytest.mark.asyncio
-async def test_run_task_planner_only_flow(monkeypatch: pytest.MonkeyPatch) -> None:
-    planner_called = {"value": False}
-
-    async def fake_run_planner(**_: object) -> tuple[tasks.ExecutionPlan, InvocationCost]:
-        planner_called["value"] = True
-        return (
-            tasks.ExecutionPlan(
-                steps=[tasks.PlanStep(stepType="synthesize", objective="Summarize")],
-                reasoning="plan",
-            ),
-            InvocationCost(label="planner", total_tokens=5),
-        )
-
-    async def fake_execute_plan_step(
-        step: tasks.PlanStep,
-        step_index: int,
-        **_: object,
-    ) -> tuple[StepResult, list[InvocationCost]]:
-        return (
-            StepResult(
-                step_id=f"plan_step_{step_index}",
-                objective=step.objective,
-                success=True,
-                output={"ok": True},
-                error=None,
-            ),
-            [],
-        )
-
-    monkeypatch.setattr(tasks, "_run_planner", fake_run_planner)
-    monkeypatch.setattr(tasks, "_execute_plan_step", fake_execute_plan_step)
-
-    runner = _DummyRunner(SkillResult(success=True, output={"ignored": True}))
+async def test_run_task_executes_agent() -> None:
+    runner = _DummyRunner(AgentResult(success=True, output={"summary": "ok"}))
     req = _request_with_runner(runner)
-    body = tasks.RunTaskRequest(
+    body = RunTaskRequest(
         objective="do thing",
         slug="default",
+        agent_id="log_analysis",
+        input="Logs from checkout:\n```json\n{\"service\":\"checkout\"}\n```",
     )
 
-    response = await tasks.run_task(body, req)
+    response = await tasks.run_task(body.slug, body, req)
 
-    assert planner_called["value"] is True
-    assert len(runner.calls) == 0
+    assert len(runner.calls) == 1
+    assert runner.calls[0][0] == "log_analysis"
+    assert runner.calls[0][1]["input"] == body.input
+    assert runner.calls[0][1]["objective"] == "do thing"
+    assert "task" not in runner.calls[0][1]
     assert response.success is True
-    assert response.output is None
+    assert response.output == {"summary": "ok"}
     assert response.task_id is not None
     req.app.state.storage.task_runs.create.assert_awaited_once()
     persisted = req.app.state.storage.task_runs.create.await_args.args[0]
     assert persisted["id"] == response.task_id
+    assert persisted["agent_id"] == "log_analysis"
+    assert persisted["request_input"] == body.input
     assert persisted["success"] is True
-    assert persisted["tenant_slug"] == "default"
-    assert persisted["objective"] == "do thing"
-    assert persisted["cost"] is not None
-    assert len(persisted["steps_completed"]) == 1
 
 
 @pytest.mark.asyncio
-async def test_run_task_direct_skill_success_skips_planner(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    planner_called = {"value": False}
+async def test_run_task_without_agent_or_workflow_rejected() -> None:
+    with pytest.raises(ValidationError, match="workflow_id or agent_id is required"):
+        RunTaskRequest(objective="do thing", slug="xcorp")
 
-    async def fake_run_planner(**_: object) -> tuple[tasks.ExecutionPlan, InvocationCost]:
-        planner_called["value"] = True
-        raise AssertionError("Planner should not run on direct skill success")
 
-    monkeypatch.setattr(tasks, "_run_planner", fake_run_planner)
+@pytest.mark.asyncio
+async def test_run_task_rejects_both_agent_and_workflow() -> None:
+    with pytest.raises(ValidationError, match="not both"):
+        RunTaskRequest(
+            objective="do thing",
+            slug="xcorp",
+            agent_id="log_analysis",
+            workflow_id="ppl_log_analysis",
+        )
 
-    runner = _DummyRunner(SkillResult(success=True, output={"direct": True}))
+
+@pytest.mark.asyncio
+async def test_run_task_accepts_string_input_without_validation() -> None:
+    runner = _DummyRunner(AgentResult(success=True, output={}))
     req = _request_with_runner(runner)
-    body = tasks.RunTaskRequest(
-        objective="investigate",
+    body = RunTaskRequest(
+        objective="do thing",
         slug="default",
-        skill_id="log_analysis",
-        input={"logs": [], "alert_id": "a-1"},
+        agent_id="log_analysis",
+        input="free-form context",
     )
-
-    response = await tasks.run_task(body, req)
-
-    assert planner_called["value"] is False
+    response = await tasks.run_task(body.slug, body, req)
     assert response.success is True
-    assert len(response.steps_completed) == 1
-    assert response.output == {"direct": True}
-    assert response.task_id is not None
-    persist = req.app.state.storage.task_runs.create.await_args.args[0]
-    assert persist["id"] == response.task_id
-    assert persist["success"] is True
-    assert persist["steps_completed"][0]["success"] is True
-    first_call = runner.calls[0]
-    assert first_call[0] == "log_analysis"
-    assert first_call[1]["alert_id"] == "a-1"
-    assert first_call[1]["objective"] == "investigate"
-    assert first_call[2] == "default"
-
-
-@pytest.mark.asyncio
-async def test_run_task_direct_skill_failure_returns_error_without_planner(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    planner_called = {"value": False}
-
-    async def fake_run_planner(**_: object) -> tuple[tasks.ExecutionPlan, InvocationCost]:
-        planner_called["value"] = True
-        raise AssertionError("Planner should not run on direct skill failure")
-
-    monkeypatch.setattr(tasks, "_run_planner", fake_run_planner)
-
-    runner = _DummyRunner(SkillResult(success=False, error="boom"))
-    req = _request_with_runner(runner)
-    body = tasks.RunTaskRequest(
-        objective="investigate",
-        slug="default",
-        skill_id="log_analysis",
-        input={"logs": []},
-    )
-
-    response = await tasks.run_task(body, req)
-
-    assert planner_called["value"] is False
-    assert response.success is False
-    assert response.error == "boom"
-    assert len(response.steps_completed) == 1
-    assert response.steps_completed[0].success is False
-    assert response.steps_completed[0].error == "boom"
-    assert response.output is None
-    persist = req.app.state.storage.task_runs.create.await_args.args[0]
-    assert persist["success"] is False
-    assert persist["error"] == "boom"
-
-
-@pytest.mark.asyncio
-async def test_run_task_unknown_skill_returns_404() -> None:
-    runner = _DummyRunner(SkillResult(success=True, output={}))
-    req = _request_with_runner(runner, skill_row=None)
-    body = tasks.RunTaskRequest(
-        objective="x",
-        slug="default",
-        skill_id="definitely_missing_skill_id_12345",
-        input={},
-    )
-    with pytest.raises(HTTPException) as exc_info:
-        await tasks.run_task(body, req)
-    assert exc_info.value.status_code == 404
-    req.app.state.storage.task_runs.create.assert_not_called()
-
-
-@pytest.mark.asyncio
-async def test_run_task_direct_skill_invalid_input_returns_422() -> None:
-    runner = _DummyRunner(SkillResult(success=True, output={}))
-    row = _log_analysis_skill_row(require_logs=True)
-    req = _request_with_runner(runner, skill_row=row)
-    body = tasks.RunTaskRequest(
-        objective="investigate",
-        slug="default",
-        skill_id="log_analysis",
-        input={"alert_id": "only-this-no-logs"},
-    )
-    with pytest.raises(HTTPException) as exc_info:
-        await tasks.run_task(body, req)
-    assert exc_info.value.status_code == 422
-    req.app.state.storage.task_runs.create.assert_not_called()
-
-
-@pytest.mark.asyncio
-async def test_run_planner_includes_skill_hint_and_input(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    captured: dict[str, object] = {}
-
-    class _FakeRunResult:
-        def final_output_as(
-            self, _model: type[tasks.ExecutionPlan], _strict: bool
-        ) -> tasks.ExecutionPlan:
-            return tasks.ExecutionPlan(steps=[], reasoning="ok")
-
-    async def fake_runner_run(*, starting_agent: object, input: str) -> _FakeRunResult:
-        del starting_agent
-        captured["payload"] = json.loads(input)
-        return _FakeRunResult()
-
-    monkeypatch.setattr(tasks.Runner, "run", staticmethod(fake_runner_run))
-    monkeypatch.setattr(
-        tasks,
-        "extract_runner_cost",
-        lambda *_: InvocationCost(label="planner", total_tokens=0),
-    )
-    monkeypatch.setattr(tasks, "get_agent_instructions", lambda _k: "instructions")
-    monkeypatch.setattr(tasks, "get_agent_model", lambda _k: "gpt-5-mini")
-    monkeypatch.setattr(tasks, "get_agent_name", lambda _k: "planner")
-
-    storage = MagicMock()
-    storage.tenant_skills = MagicMock(list_for_tenant=AsyncMock(return_value=[]))
-
-    async def _empty_descriptors(_tid: str) -> list:
-        return []
-
-    runner = SimpleNamespace(list_tool_descriptors=_empty_descriptors)
-    task = RunTaskRequestDomain(
-        task="investigate",
-        tenant_id="default",
-        skill_id="log_analysis",
-        input={"alert_id": "a-1"},
-    )
-
-    await tasks._run_planner(
-        task=task,
-        storage=storage,
-        runner=runner,
-        completed_steps=[],
-        replan_reason=None,
-    )
-
-    planner_task = captured["payload"]["task"]
-    assert planner_task["prompt"] == "investigate"
-    assert planner_task["tenantId"] == "default"
-    assert planner_task["skillId"] == "log_analysis"
-    assert planner_task["input"] == {"alert_id": "a-1"}
-
-
-@pytest.mark.asyncio
-async def test_execute_plan_step_merges_task_input_into_skill_payload() -> None:
-    runner = _DummyRunner(SkillResult(success=True, output={"ok": True}))
-    task = RunTaskRequestDomain(
-        task="analyze trace latency",
-        tenant_id="default",
-        input={"trace_id": "00f749071260fecd7bf21aabc0c9309c"},
-    )
-    step = tasks.PlanStep(
-        stepType="invoke_skill",
-        skillId="trace_analysis",
-        objective="Fetch trace and produce RCA",
-    )
-
-    await tasks._execute_plan_step(
-        step,
-        0,
-        task=task,
-        runner=runner,
-        prior_steps=[],
-    )
-
     assert len(runner.calls) == 1
-    _, payload, tenant_id = runner.calls[0]
-    assert tenant_id == "default"
-    assert payload["trace_id"] == "00f749071260fecd7bf21aabc0c9309c"
-    assert payload["objective"] == "Fetch trace and produce RCA"
-    assert payload["task"] == "analyze trace latency"
-    assert payload["prior_steps"] == []
+
+
+@pytest.mark.asyncio
+async def test_run_task_agent_failure_returns_error() -> None:
+    runner = _DummyRunner(AgentResult(success=False, error="agent blew up"))
+    req = _request_with_runner(runner)
+    body = RunTaskRequest(
+        objective="do thing",
+        slug="default",
+        agent_id="log_analysis",
+    )
+    response = await tasks.run_task(body.slug, body, req)
+    assert response.success is False
+    assert response.error == "agent blew up"
+
+
+@pytest.mark.asyncio
+async def test_list_runs_returns_runs() -> None:
+    req = MagicMock()
+    storage = MagicMock()
+    storage.tenants = MagicMock(get_by_slug=AsyncMock(return_value=SimpleNamespace(slug="default")))
+    
+    import uuid
+    from datetime import datetime, timezone
+    run1 = SimpleNamespace(
+        id=uuid.uuid4(),
+        tenant_slug="default",
+        success=True,
+        objective="obj1",
+        agent_id="agent1",
+        workflow_id=None,
+        request_input="input1",
+        output={"out": "1"},
+        summary=None,
+        reasoning="reason1",
+        error=None,
+        step_execution_detail={"steps": []},
+        cost=None,
+        started_at=datetime.now(timezone.utc),
+        finished_at=datetime.now(timezone.utc),
+    )
+    storage.task_runs = MagicMock(list_for_tenant=AsyncMock(return_value=[run1]))
+    req.app.state.storage = storage
+
+    response = await tasks.list_runs("default", req)
+    assert len(response) == 1
+    assert response[0].id == run1.id
+    assert response[0].objective == "obj1"
+    storage.task_runs.list_for_tenant.assert_awaited_once_with("default")
+
+
+@pytest.mark.asyncio
+async def test_get_run_returns_run() -> None:
+    req = MagicMock()
+    storage = MagicMock()
+    storage.tenants = MagicMock(get_by_slug=AsyncMock(return_value=SimpleNamespace(slug="default")))
+    
+    import uuid
+    from datetime import datetime, timezone
+    run_id = uuid.uuid4()
+    run = SimpleNamespace(
+        id=run_id,
+        tenant_slug="default",
+        success=True,
+        objective="obj1",
+        agent_id="agent1",
+        workflow_id=None,
+        request_input="input1",
+        output={"out": "1"},
+        summary=None,
+        reasoning="reason1",
+        error=None,
+        step_execution_detail={"steps": []},
+        cost=None,
+        started_at=datetime.now(timezone.utc),
+        finished_at=datetime.now(timezone.utc),
+    )
+    storage.task_runs = MagicMock(get_for_tenant=AsyncMock(return_value=run))
+    req.app.state.storage = storage
+
+    response = await tasks.get_run("default", run_id, req)
+    assert response.id == run_id
+    assert response.objective == "obj1"
+    storage.task_runs.get_for_tenant.assert_awaited_once_with("default", run_id)
+
+
+@pytest.mark.asyncio
+async def test_get_run_not_found_raises_http_exception() -> None:
+    req = MagicMock()
+    storage = MagicMock()
+    storage.tenants = MagicMock(get_by_slug=AsyncMock(return_value=SimpleNamespace(slug="default")))
+    storage.task_runs = MagicMock(get_for_tenant=AsyncMock(return_value=None))
+    req.app.state.storage = storage
+
+    import uuid
+    with pytest.raises(HTTPException) as exc_info:
+        await tasks.get_run("default", uuid.uuid4(), req)
+    assert exc_info.value.status_code == 404
+

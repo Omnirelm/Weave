@@ -1,51 +1,53 @@
-"""Per-request, tenant-scoped MCP server resolution backed by tenant_integrations."""
+"""Per-request, tenant-scoped MCP toolset resolution backed by tenant_integrations."""
 
 from __future__ import annotations
 
 import logging
 from typing import TYPE_CHECKING, Any
 
+from google.adk.tools.mcp_tool import McpToolset
+
 from src.core.mcp.registry import McpServerConfig, McpServerRegistry
 from src.integrations.flavours import IntegrationType
 
 if TYPE_CHECKING:
+    from src.core.agents.base import AgentDef
     from src.storage.interface import StorageGateway
 
 logger = logging.getLogger(__name__)
 
-# Singleton registry used only for building SDK server instances from configs.
 _server_builder = McpServerRegistry()
 
 
 class McpProvider:
-    """Resolves MCP servers for a tenant at request time.
+    """Resolves MCP toolsets for a tenant at request time.
 
-    Skill YAMLs declare MCP servers by flavour name (e.g. ``["GITHUB", "JIRA"]``).
+    Agent definitions declare MCP servers by flavour name (e.g. ``["GITHUB", "JIRA"]``).
     At execution time McpProvider queries tenant_integrations for active rows with
-    ``integration_type='MCP'`` and the requested flavours, then builds ready-to-use
-    MCPServer* instances from each row's config dict.
-
-    Integration rows store transport settings under ``config`` with key ``transport``
-    (stdio | sse | streamable_http); that is mapped to ``McpServerConfig.type`` for
-    the Agents SDK.
+    ``integration_type='MCP'`` and the requested flavours, then builds ADK
+    ``McpToolset`` instances from each row's config dict.
     """
 
     def __init__(self, storage: StorageGateway) -> None:
         self._storage = storage
 
-    async def resolve(self, flavours: list[str], tenant_slug: str) -> list[Any]:
-        """Return built MCPServer* instances for the requested flavours.
+    async def get_toolsets_for_agent(
+        self, agent: "AgentDef", tenant_slug: str
+    ) -> list[McpToolset]:
+        """Return ``McpToolset`` instances declared on the agent for this tenant."""
+        return await self.get_toolsets_for_flavours(agent.mcp_servers, tenant_slug)
 
-        Flavours with no active integration row are skipped with a warning.
-        The returned servers are ready to pass to MCPServerManager.
-        """
+    async def get_toolsets_for_flavours(
+        self, flavours: list[str], tenant_slug: str
+    ) -> list[McpToolset]:
+        """Return built ``McpToolset`` instances for the requested flavours."""
         if not flavours:
             return []
 
         rows = await self._storage.integrations.list_for_tenant(tenant_slug)
         flavour_set = {f.upper() for f in flavours}
 
-        servers: list[Any] = []
+        toolsets: list[McpToolset] = []
         matched_flavours: set[str] = set()
         for row in rows:
             if not row.active:
@@ -60,7 +62,9 @@ class McpProvider:
                 continue
 
             matched_flavours.add(row.flavour)
-            servers.append(_server_builder.build_server(config))
+            # Use async build to resolve OAuth tokens before building toolset
+            toolset = await _server_builder.build_toolset_async(config)
+            toolsets.append(toolset)
 
         missing = flavour_set - matched_flavours
         for flavour in missing:
@@ -70,7 +74,11 @@ class McpProvider:
                 tenant_slug,
             )
 
-        return servers
+        return toolsets
+
+    async def resolve(self, flavours: list[str], tenant_slug: str) -> list[McpToolset]:
+        """Backward-compatible alias for :meth:`get_toolsets_for_flavours`."""
+        return await self.get_toolsets_for_flavours(flavours, tenant_slug)
 
     def _build_server_config(
         self, flavour: str, config: dict[str, Any]
@@ -85,6 +93,10 @@ class McpProvider:
             payload["type"] = transport
             payload["name"] = flavour
             payload["enabled"] = True
+            # Pass through auth_mechanism if present
+            auth_mechanism = payload.get("auth_mechanism")
+            if auth_mechanism:
+                payload["auth_mechanism"] = auth_mechanism
             return McpServerConfig.model_validate(payload)
         except Exception:
             logger.exception(

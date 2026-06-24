@@ -37,10 +37,10 @@ Weave turns these tasks into agent workflows with reusable skills and tools, so 
 
 ## Core Concepts
 
-- **Orchestrator** — HTTP API (`orchestrator/`) backed by PostgreSQL: tenants, skills, integrations, and `POST /tasks/run`.
-- **Skills** — Instructions + model + optional JSON schemas; may declare **`capabilities`** (tool names) and **`mcp_servers`** (MCP integration flavours). Stored per tenant in the DB; JSON files under `orchestrator/skills/` are templates you register via the API.
+- **Orchestrator** — HTTP API (`orchestrator/`) backed by PostgreSQL: tenants, agents, integrations, and `POST /tasks/run`.
+- **Agents** — Instructions + model + optional JSON schemas; may declare **`tools`** (tool names) and **`mcp_servers`** (MCP integration flavours). Stored per tenant in the DB; JSON files under `orchestrator/agents/` are templates you register via the API.
 - **Tools** — Resolved at runtime (e.g. static HTTP tool, or Loki/OpenSearch/ClickHouse tools when a matching **integration** exists).
-- **Integrations** — Per-tenant configuration (Loki, OpenSearch, ClickHouse, Git, traces, MCP servers). MCP **`flavour`** must match what skills list under **`mcp_servers`**.
+- **Integrations** — Per-tenant configuration (Loki, OpenSearch, ClickHouse, Git, traces, MCP servers). MCP **`flavour`** must match what agents list under **`mcp_servers`**.
 
 ---
 
@@ -89,11 +89,11 @@ uv run uvicorn src.main:app --reload --host 0.0.0.0 --port 9999
 # or: uv run orchestrator   (port from REST_PORT, default 9999)
 ```
 
-### 4. First flow: tenant → skill → integration → task
+### 4. First flow: tenant → agent → integration → task
 
-Skills the runner uses are stored in **`tenant_skills`**. Copy definitions from **`orchestrator/skills/*.json`** into the API with **`POST /tenants/{slug}/skills`**.
+Agents the runner uses are stored in **`tenant_agents`**. Copy definitions from **`orchestrator/agents/*.json`** into the API with **`POST /tenants/{slug}/agents`**. After editing template files, re-POST affected agents so the database picks up changes (see **`orchestrator/README.md`** for the `ppl_log_analysis` workflow agents).
 
-From the **repository root**, paths below use **`orchestrator/skills/`**. If you already **`cd orchestrator`**, use **`skills/`** instead.
+From the **repository root**, paths below use **`orchestrator/agents/`**. If you already **`cd orchestrator`**, use **`agents/`** instead.
 
 ```bash
 export BASE=http://localhost:9999
@@ -107,15 +107,15 @@ curl -s -X POST "$BASE/tenants" \
   -d '{"slug":"dev","display_name":"Dev","plan_slug":"starter"}'
 ```
 
-**2 — Register a skill** (example: HTTP check; no integration required)
+**2 — Register an agent** (example: HTTP check; no integration required)
 
 ```bash
-curl -s -X POST "$BASE/tenants/dev/skills" \
+curl -s -X POST "$BASE/tenants/dev/agents" \
   -H "Content-Type: application/json" \
-  -d @orchestrator/skills/http_check.json
+  -d @orchestrator/agents/http_check.json
 ```
 
-**3 — Add an integration** (example: Loki — needed for skills whose **`capabilities`** include `loki_*` tools; point **`url`** at a real Loki when you have one)
+**3 — Add an integration** (example: Loki — needed for agents whose **`tools`** include `loki_*` tool names; point **`url`** at a real Loki when you have one)
 
 ```bash
 curl -s -X POST "$BASE/tenants/dev/integrations" \
@@ -128,12 +128,12 @@ curl -s -X POST "$BASE/tenants/dev/integrations" \
 ```bash
 curl -s -X POST "$BASE/tasks/run" \
   -H "Content-Type: application/json" \
-  -d '{"objective":"Health check","slug":"dev","skill_id":"http_check","input":{"url":"https://example.com"}}'
+  -d '{"objective":"Health check","slug":"dev","agent_id":"http_check","input":{"url":"https://example.com"}}'
 ```
 
-Request body: **`objective`** and **`slug`** required; **`skill_id`** and **`input`** optional. Omit **`skill_id`** to use the planner (it only sees skills already stored for that tenant).
+Request body: **`objective`**, **`slug`**, and **`agent_id`** required; **`input`** optional (validated against the agent's `input_schema` when present).
 
-With Loki registered, you can **`POST`** e.g. `orchestrator/skills/logql_generation.json` and run a task with **`"skill_id": "logql_generation"`** and a body that matches that skill’s schema.
+With Loki registered, you can **`POST`** e.g. `orchestrator/agents/logql_generation.json` and run a task with **`"agent_id": "logql_generation"`** and a body that matches that agent's schema.
 
 ---
 
@@ -158,7 +158,7 @@ weave/
     pyproject.toml
     spec/openapi.yaml
     schema/init.sql
-    skills/             # JSON templates → POST …/tenants/{slug}/skills
+    agents/             # JSON templates → POST …/tenants/{slug}/agents
     scripts/
     src/
       api/

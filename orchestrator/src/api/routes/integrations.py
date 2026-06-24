@@ -8,6 +8,7 @@ from sqlalchemy.exc import IntegrityError
 from src.api.models.schemas import (
     CreateIntegrationRequest,
     IntegrationResponse,
+    TenantIntegrationV1,
     UpdateIntegrationRequest,
 )
 from src.api.translators.integrations import (
@@ -32,7 +33,7 @@ async def _require_tenant(storage: StorageGateway, slug: str) -> None:
         )
 
 
-@router.get("", response_model=list[IntegrationResponse], response_model_exclude_none=True)
+@router.get("", response_model=list[TenantIntegrationV1], response_model_exclude_none=True)
 async def list_integrations(slug: str, request: Request) -> list[IntegrationResponse]:
     storage = _get_storage(request)
     await _require_tenant(storage, slug)
@@ -40,7 +41,7 @@ async def list_integrations(slug: str, request: Request) -> list[IntegrationResp
     return [integration_to_response(row) for row in rows]
 
 
-@router.post("", response_model=IntegrationResponse, response_model_exclude_none=True, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=TenantIntegrationV1, response_model_exclude_none=True, status_code=status.HTTP_201_CREATED)
 async def create_integration(
     slug: str,
     body: CreateIntegrationRequest,
@@ -65,7 +66,7 @@ async def create_integration(
     return integration_to_response(row)
 
 
-@router.get("/{integration_id}", response_model=IntegrationResponse, response_model_exclude_none=True)
+@router.get("/{integration_id}", response_model=TenantIntegrationV1, response_model_exclude_none=True)
 async def get_integration(
     slug: str,
     integration_id: uuid.UUID,
@@ -84,7 +85,7 @@ async def get_integration(
     return integration_to_response(row)
 
 
-@router.put("/{integration_id}", response_model=IntegrationResponse, response_model_exclude_none=True)
+@router.put("/{integration_id}", response_model=TenantIntegrationV1, response_model_exclude_none=True)
 async def update_integration(
     slug: str,
     integration_id: uuid.UUID,

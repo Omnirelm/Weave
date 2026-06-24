@@ -1,0 +1,35 @@
+{
+  "id": "ppl_log_analysis",
+  "name": "PPL Log RCA",
+  "description": "Generate PPL query, fetch logs, produce RCA report, and identify code issues in the repository",
+  "nodes": [
+    {
+      "id": "ppl_generation",
+      "type": "agent",
+      "agent_id": "ppl_generation",
+      "objective": "Generate PPL query"
+    },
+    {
+      "id": "fetch_and_analyze",
+      "type": "agent",
+      "agent_id": "fetch_and_analyze",
+      "objective": "Fetch logs and produce RCA report"
+    },
+    {
+      "id": "code_analysis",
+      "type": "agent",
+      "agent_id": "git_inference",
+      "objective": "Use log RCA findings to identify code issues in the repository"
+    }
+  ],
+  "edges": [
+    {
+      "from_node": "START",
+      "to_nodes": [
+        "ppl_generation",
+        "fetch_and_analyze",
+        "code_analysis"
+      ]
+    }
+  ]
+}

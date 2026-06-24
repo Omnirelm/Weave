@@ -8,7 +8,8 @@ from src.storage.models.task_run import TaskRun
 from src.storage.models.tenant import Tenant
 from src.storage.models.tenant_api_key import TenantApiKey
 from src.storage.models.tenant_quota_usage import TenantQuotaUsage
-from src.storage.models.tenant_skill import TenantSkill
+from src.storage.models.tenant_agent import TenantAgent
+from src.storage.models.tenant_workflow import TenantWorkflow
 
 __all__ = [
     "Base",
@@ -19,6 +20,7 @@ __all__ = [
     "TenantApiKey",
     "TenantIntegration",
     "TenantQuotaUsage",
-    "TenantSkill",
+    "TenantAgent",
+    "TenantWorkflow",
     "TaskRun",
 ]

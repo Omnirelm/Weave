@@ -29,7 +29,7 @@ TENANTINTEGRATIONV1_ONE_OF_SCHEMAS = ["CodeRepositoryV1", "LogSourceV1", "McpSer
 
 class TenantIntegrationV1(BaseModel):
     """
-    Tenant integration is a configuration for a tenant integration.
+    Tenant integration configuration. On create, omit id and timestamps; active defaults to true. Responses include id, created_at, and updated_at. 
     """
     # data type: LogSourceV1
     oneof_schema_1_validator: Optional[LogSourceV1] = None

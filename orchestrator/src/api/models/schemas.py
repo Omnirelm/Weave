@@ -6,12 +6,16 @@ by the OpenAPI generator.
 """
 from __future__ import annotations
 
-from typing import Annotated, Any, Union
+from typing import Annotated, Union
 
-from pydantic import BaseModel, ConfigDict, Field
-from pydantic import AliasChoices
-from typing_extensions import Literal
+from pydantic import AliasChoices, Field, model_validator
 
+from typing_extensions import Literal, Self
+
+from .models.agent_resource import AgentResource
+from .models.workflow_edge_resource import WorkflowEdgeResource
+from .models.workflow_node_resource import WorkflowNodeResource
+from .models.workflow_resource import WorkflowResource
 from .models.click_house_v1 import ClickHouseV1
 from .models.code_repository_v1 import CodeRepositoryV1
 from .models.error_response import ErrorResponse
@@ -29,22 +33,32 @@ from .models.loki_v1 import LokiV1
 from .models.mcp_server_v1 import McpServerV1
 from .models.open_search_v1 import OpenSearchV1
 from .models.page import Page
-from .models.run_task_request import RunTaskRequest
+from .models.run_task_request import RunTaskRequest as _GeneratedRunTaskRequest
 from .models.run_task_response import RunTaskResponse
-from .models.skill_resource import SkillResource
-from .models.skill_step_resource import SkillStepResource
-from .models.step_result_dto import StepResultDto
 from .models.tempo_v1 import TempoV1
 from .models.tenant_integration_type_v1 import TenantIntegrationTypeV1
-from .models.tenant_integration_v1 import TenantIntegrationV1
 from .models.tenant_v1 import TenantV1
 from .models.tool_v1 import ToolV1
 from .models.tools_page_response import ToolsPageResponse
+from .models.model_v1 import ModelV1
+from .models.models_page_response import ModelsPageResponse
 from .models.trace_source_v1 import TraceSourceV1
 
 
 class CreateTenantRequest(TenantV1):
     pass
+
+
+class RunTaskRequest(_GeneratedRunTaskRequest):
+    @model_validator(mode="after")
+    def validate_execution_target(self) -> Self:
+        has_agent = bool(self.agent_id and str(self.agent_id).strip())
+        has_workflow = bool(self.workflow_id and str(self.workflow_id).strip())
+        if not has_agent and not has_workflow:
+            raise ValueError("workflow_id or agent_id is required")
+        if has_agent and has_workflow:
+            raise ValueError("Provide workflow_id or agent_id, not both")
+        return self
 
 
 # ---------------------------------------------------------------------------
@@ -142,12 +156,40 @@ class McpServerIntegrationBody(McpServerV1):
     id: str | None = None
     created_at: int | None = None
     updated_at: int | None = None
+    auth_mechanism: LogSourceAuthMechanismV1 | None = None
 
     def validate(self) -> None:
         if self.transport in ("sse", "streamable_http") and not (self.url or "").strip():
             raise ValueError(f"MCP transport {self.transport!r} requires url")
         if self.transport == "stdio" and not (self.command or "").strip():
             raise ValueError("MCP transport 'stdio' requires command")
+        # Auth mechanism validation
+        if self.auth_mechanism:
+            self._validate_auth_mechanism()
+
+    def _validate_auth_mechanism(self) -> None:
+        auth = self.auth_mechanism
+        mechanisms = [auth.basic, auth.bearer, auth.oauth, auth.api_key]
+        active = [m for m in mechanisms if m is not None]
+        if len(active) > 1:
+            raise ValueError("Only one auth mechanism can be specified")
+        if auth.basic:
+            if not (auth.basic.username or "").strip():
+                raise ValueError("Basic auth requires username")
+            if not (auth.basic.password or "").strip():
+                raise ValueError("Basic auth requires password")
+        if auth.bearer:
+            if not (auth.bearer.token or "").strip():
+                raise ValueError("Bearer auth requires token")
+        if auth.oauth:
+            cfg = auth.oauth.oauth_config
+            if not cfg or not (cfg.token_url or "").strip():
+                raise ValueError("OAuth requires token_url")
+        if auth.api_key:
+            if not (auth.api_key.api_key or "").strip():
+                raise ValueError("API key auth requires api_key")
+            if not (auth.api_key.api_key_header_name or "").strip():
+                raise ValueError("API key auth requires api_key_header_name")
 
 
 # Level-2 unions: within each type, discriminate by flavour.
@@ -178,6 +220,31 @@ _IntegrationUnion = Annotated[
     Field(discriminator="type"),
 ]
 
-CreateIntegrationRequest = _IntegrationUnion
-UpdateIntegrationRequest = _IntegrationUnion
-IntegrationResponse      = _IntegrationUnion
+TenantIntegrationV1 = _IntegrationUnion
+CreateIntegrationRequest = TenantIntegrationV1
+UpdateIntegrationRequest = TenantIntegrationV1
+IntegrationResponse = TenantIntegrationV1
+
+
+from uuid import UUID
+from datetime import datetime
+from pydantic import BaseModel
+from typing import Any
+
+class TaskRunResponse(BaseModel):
+    id: UUID
+    tenant_slug: str
+    success: bool
+    objective: str
+    agent_id: str | None = None
+    workflow_id: str | None = None
+    request_input: Any = None
+    output: dict[str, Any] | None = None
+    summary: str | None = None
+    reasoning: str | None = None
+    error: str | None = None
+    step_execution_detail: Any = None
+    cost: InvocationCostDto | None = None
+    started_at: datetime
+    finished_at: datetime
+

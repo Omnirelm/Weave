@@ -2,7 +2,7 @@
 
 Quota enforcement targets are declared in config ``auth.quota_routes``: each rule
 binds a path pattern + HTTP methods to a ``plan_quotas.operation`` string
-(``task_run``, ``skill_max``, …). The middleware does not hardcode paths; it
+(``task_run``, ``agent_max``, …). The middleware does not hardcode paths; it
 matches the request against those rules in order.
 """
 
@@ -182,8 +182,10 @@ class AuthQuotaMiddleware(BaseHTTPMiddleware):
     ) -> Response | None:
         if operation == "task_run":
             return await self._monthly_quota(storage, tenant_slug, operation)
-        if operation == "skill_max":
-            return await self._skill_max_cap(storage, tenant_slug, operation)
+        if operation == "agent_max":
+            return await self._agent_max_cap(storage, tenant_slug, operation)
+        if operation == "workflow_max":
+            return await self._workflow_max_cap(storage, tenant_slug, operation)
         return None
 
     async def _monthly_quota(
@@ -210,7 +212,7 @@ class AuthQuotaMiddleware(BaseHTTPMiddleware):
             )
         return None
 
-    async def _skill_max_cap(
+    async def _agent_max_cap(
         self,
         storage: StorageGateway,
         tenant_slug: str,
@@ -223,10 +225,31 @@ class AuthQuotaMiddleware(BaseHTTPMiddleware):
             return None
         if pq.period != PERIOD_NONE:
             return None
-        count = await storage.tenant_skills.count_for_tenant(tenant_slug)
+        count = await storage.tenant_agents.count_for_tenant(tenant_slug)
         if count >= pq.limit_value:
             return JSONResponse(
-                {"detail": "Maximum number of custom skills reached for this plan"},
+                {"detail": "Maximum number of custom agents reached for this plan"},
+                status_code=429,
+            )
+        return None
+
+    async def _workflow_max_cap(
+        self,
+        storage: StorageGateway,
+        tenant_slug: str,
+        operation: str,
+    ) -> Response | None:
+        tenant, pq = await storage.quota_usage.get_tenant_and_plan_quota(tenant_slug, operation)
+        if tenant is None:
+            return JSONResponse({"detail": "Tenant not found"}, status_code=403)
+        if pq is None:
+            return None
+        if pq.period != PERIOD_NONE:
+            return None
+        count = await storage.tenant_workflows.count_for_tenant(tenant_slug)
+        if count >= pq.limit_value:
+            return JSONResponse(
+                {"detail": "Maximum number of custom workflows reached for this plan"},
                 status_code=429,
             )
         return None

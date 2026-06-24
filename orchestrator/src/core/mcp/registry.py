@@ -1,21 +1,33 @@
-"""MCP server registry: register by name and build SDK server instances."""
+"""MCP server registry: register by name and build ADK McpToolset instances."""
 
 from __future__ import annotations
 
 import logging
 from collections.abc import Mapping, Sequence
-from typing import Any
-
-from agents.mcp import MCPServerSse, MCPServerStdio, MCPServerStreamableHttp
-from agents.mcp.server import (
-    MCPServerSseParams,
-    MCPServerStdioParams,
-    MCPServerStreamableHttpParams,
-)
-from pydantic import BaseModel, ConfigDict, Field, model_validator
 from typing import Literal
 
+from google.adk.tools.mcp_tool import McpToolset
+from google.adk.tools.mcp_tool.mcp_session_manager import (
+    SseConnectionParams,
+    StdioConnectionParams,
+    StreamableHTTPConnectionParams,
+)
+from mcp import StdioServerParameters
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+from src.core.mcp.auth import get_auth_handler
+
 logger = logging.getLogger(__name__)
+
+
+class McpAuthMechanism(BaseModel):
+    """Auth mechanism config mirroring the API schema."""
+    model_config = ConfigDict(extra="ignore")
+
+    basic: dict | None = None  # {username, password}
+    bearer: dict | None = None  # {token}
+    oauth: dict | None = None  # {oauth_config: {client_id, client_secret, token_url, scope}}
+    api_key: dict | None = None  # {api_key, api_key_header_name}
 
 
 class McpServerConfig(BaseModel):
@@ -32,6 +44,7 @@ class McpServerConfig(BaseModel):
     timeout: float | None = None
     sse_read_timeout: float | None = None
     cache_tools_list: bool = False
+    auth_mechanism: McpAuthMechanism | None = None
 
     @model_validator(mode="after")
     def _transport_fields(self) -> "McpServerConfig":
@@ -50,10 +63,8 @@ class McpConfig(BaseModel):
     servers: dict[str, McpServerConfig] = Field(default_factory=dict)
 
 
-
-
 class McpServerRegistry:
-    """Stores enabled MCP server configs and builds runtime server instances."""
+    """Stores enabled MCP server configs and builds runtime McpToolset instances."""
 
     def __init__(self, configs: Mapping[str, McpServerConfig] | None = None) -> None:
         self._registry: dict[str, McpServerConfig] = {}
@@ -96,51 +107,91 @@ class McpServerRegistry:
             config = self.get(name)
             if config is None:
                 logger.warning(
-                    "Skill declared MCP server %r but it is not enabled or configured; skipping",
+                    "Agent declared MCP server %r but it is not enabled or configured; skipping",
                     name,
                 )
                 continue
             resolved.append(config)
         return resolved
 
-    def build_server(self, config: McpServerConfig) -> Any:
-        """Build one OpenAI Agents SDK MCP server instance from config."""
+    def build_toolset(
+        self, config: McpServerConfig, auth_headers: dict[str, str] | None = None
+    ) -> McpToolset:
+        """Build one ADK McpToolset from config.
+
+        Args:
+            config: MCP server configuration
+            auth_headers: Pre-resolved authentication headers to merge with static headers
+
+        Returns:
+            McpToolset configured for this server
+        """
         if config.type == "stdio":
-            params: MCPServerStdioParams = {"command": config.command or ""}
-            if config.args:
-                params["args"] = list(config.args)
-            if config.env:
-                env = {k: v for k, v in config.env.items() if v}
-                if env:
-                    params["env"] = env
-            return MCPServerStdio(
-                params,
-                name=config.name,
-                cache_tools_list=config.cache_tools_list,
+            env = {k: v for k, v in config.env.items() if v} or None
+            server_params = StdioServerParameters(
+                command=config.command or "",
+                args=list(config.args) if config.args else [],
+                env=env,
             )
+            timeout = config.timeout if config.timeout is not None else 5.0
+            connection_params = StdioConnectionParams(
+                server_params=server_params,
+                timeout=timeout,
+            )
+            return McpToolset(connection_params=connection_params)
+
+        # Merge static headers with auth headers for HTTP transports
+        headers = dict(config.headers) if config.headers else {}
+        if auth_headers:
+            headers.update(auth_headers)
+        final_headers = headers if headers else None
 
         if config.type == "streamable_http":
-            params_h: MCPServerStreamableHttpParams = {"url": config.url or ""}
-            if config.headers:
-                params_h["headers"] = dict(config.headers)
+            kwargs: dict = {
+                "url": config.url or "",
+                "headers": final_headers,
+            }
             if config.timeout is not None:
-                params_h["timeout"] = config.timeout
+                kwargs["timeout"] = config.timeout
             if config.sse_read_timeout is not None:
-                params_h["sse_read_timeout"] = config.sse_read_timeout
-            return MCPServerStreamableHttp(
-                params_h,
-                name=config.name,
-                cache_tools_list=config.cache_tools_list,
+                kwargs["sse_read_timeout"] = config.sse_read_timeout
+            return McpToolset(
+                connection_params=StreamableHTTPConnectionParams(**kwargs)
             )
 
-        params_s: MCPServerSseParams = {"url": config.url or ""}
-        if config.headers:
-            params_s["headers"] = dict(config.headers)
-        return MCPServerSse(
-            params_s,
-            name=config.name,
-            cache_tools_list=config.cache_tools_list,
-        )
+        # SSE transport
+        kwargs = {
+            "url": config.url or "",
+            "headers": final_headers,
+        }
+        if config.timeout is not None:
+            kwargs["timeout"] = config.timeout
+        if config.sse_read_timeout is not None:
+            kwargs["sse_read_timeout"] = config.sse_read_timeout
+        return McpToolset(connection_params=SseConnectionParams(**kwargs))
 
-    def build_servers(self, names: Sequence[str]) -> list[Any]:
-        return [self.build_server(config) for config in self.resolve(names)]
+    async def build_toolset_async(self, config: McpServerConfig) -> McpToolset:
+        """Build McpToolset with async auth resolution.
+
+        This method resolves OAuth tokens before building the toolset.
+        Use this when auth_mechanism may contain OAuth configuration.
+        """
+        auth_headers: dict[str, str] | None = None
+
+        if config.auth_mechanism:
+            auth_handler = get_auth_handler()
+            auth_dict = config.auth_mechanism.model_dump(exclude_none=True)
+            auth_headers = await auth_handler.get_auth_headers(auth_dict)
+
+        return self.build_toolset(config, auth_headers=auth_headers)
+
+    def build_toolsets(self, names: Sequence[str]) -> list[McpToolset]:
+        return [self.build_toolset(config) for config in self.resolve(names)]
+
+    def build_server(self, config: McpServerConfig) -> McpToolset:
+        """Backward-compatible alias for :meth:`build_toolset`."""
+        return self.build_toolset(config)
+
+    def build_servers(self, names: Sequence[str]) -> list[McpToolset]:
+        """Backward-compatible alias for :meth:`build_toolsets`."""
+        return self.build_toolsets(names)
