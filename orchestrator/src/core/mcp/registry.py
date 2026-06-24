@@ -15,7 +15,19 @@ from google.adk.tools.mcp_tool.mcp_session_manager import (
 from mcp import StdioServerParameters
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from src.core.mcp.auth import get_auth_handler
+
 logger = logging.getLogger(__name__)
+
+
+class McpAuthMechanism(BaseModel):
+    """Auth mechanism config mirroring the API schema."""
+    model_config = ConfigDict(extra="ignore")
+
+    basic: dict | None = None  # {username, password}
+    bearer: dict | None = None  # {token}
+    oauth: dict | None = None  # {oauth_config: {client_id, client_secret, token_url, scope}}
+    api_key: dict | None = None  # {api_key, api_key_header_name}
 
 
 class McpServerConfig(BaseModel):
@@ -32,6 +44,7 @@ class McpServerConfig(BaseModel):
     timeout: float | None = None
     sse_read_timeout: float | None = None
     cache_tools_list: bool = False
+    auth_mechanism: McpAuthMechanism | None = None
 
     @model_validator(mode="after")
     def _transport_fields(self) -> "McpServerConfig":
@@ -101,8 +114,18 @@ class McpServerRegistry:
             resolved.append(config)
         return resolved
 
-    def build_toolset(self, config: McpServerConfig) -> McpToolset:
-        """Build one ADK McpToolset from config."""
+    def build_toolset(
+        self, config: McpServerConfig, auth_headers: dict[str, str] | None = None
+    ) -> McpToolset:
+        """Build one ADK McpToolset from config.
+
+        Args:
+            config: MCP server configuration
+            auth_headers: Pre-resolved authentication headers to merge with static headers
+
+        Returns:
+            McpToolset configured for this server
+        """
         if config.type == "stdio":
             env = {k: v for k, v in config.env.items() if v} or None
             server_params = StdioServerParameters(
@@ -117,11 +140,16 @@ class McpServerRegistry:
             )
             return McpToolset(connection_params=connection_params)
 
+        # Merge static headers with auth headers for HTTP transports
+        headers = dict(config.headers) if config.headers else {}
+        if auth_headers:
+            headers.update(auth_headers)
+        final_headers = headers if headers else None
+
         if config.type == "streamable_http":
-            headers = dict(config.headers) if config.headers else None
             kwargs: dict = {
                 "url": config.url or "",
-                "headers": headers,
+                "headers": final_headers,
             }
             if config.timeout is not None:
                 kwargs["timeout"] = config.timeout
@@ -131,16 +159,31 @@ class McpServerRegistry:
                 connection_params=StreamableHTTPConnectionParams(**kwargs)
             )
 
-        headers = dict(config.headers) if config.headers else None
+        # SSE transport
         kwargs = {
             "url": config.url or "",
-            "headers": headers,
+            "headers": final_headers,
         }
         if config.timeout is not None:
             kwargs["timeout"] = config.timeout
         if config.sse_read_timeout is not None:
             kwargs["sse_read_timeout"] = config.sse_read_timeout
         return McpToolset(connection_params=SseConnectionParams(**kwargs))
+
+    async def build_toolset_async(self, config: McpServerConfig) -> McpToolset:
+        """Build McpToolset with async auth resolution.
+
+        This method resolves OAuth tokens before building the toolset.
+        Use this when auth_mechanism may contain OAuth configuration.
+        """
+        auth_headers: dict[str, str] | None = None
+
+        if config.auth_mechanism:
+            auth_handler = get_auth_handler()
+            auth_dict = config.auth_mechanism.model_dump(exclude_none=True)
+            auth_headers = await auth_handler.get_auth_headers(auth_dict)
+
+        return self.build_toolset(config, auth_headers=auth_headers)
 
     def build_toolsets(self, names: Sequence[str]) -> list[McpToolset]:
         return [self.build_toolset(config) for config in self.resolve(names)]

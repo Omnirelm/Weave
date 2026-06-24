@@ -156,12 +156,40 @@ class McpServerIntegrationBody(McpServerV1):
     id: str | None = None
     created_at: int | None = None
     updated_at: int | None = None
+    auth_mechanism: LogSourceAuthMechanismV1 | None = None
 
     def validate(self) -> None:
         if self.transport in ("sse", "streamable_http") and not (self.url or "").strip():
             raise ValueError(f"MCP transport {self.transport!r} requires url")
         if self.transport == "stdio" and not (self.command or "").strip():
             raise ValueError("MCP transport 'stdio' requires command")
+        # Auth mechanism validation
+        if self.auth_mechanism:
+            self._validate_auth_mechanism()
+
+    def _validate_auth_mechanism(self) -> None:
+        auth = self.auth_mechanism
+        mechanisms = [auth.basic, auth.bearer, auth.oauth, auth.api_key]
+        active = [m for m in mechanisms if m is not None]
+        if len(active) > 1:
+            raise ValueError("Only one auth mechanism can be specified")
+        if auth.basic:
+            if not (auth.basic.username or "").strip():
+                raise ValueError("Basic auth requires username")
+            if not (auth.basic.password or "").strip():
+                raise ValueError("Basic auth requires password")
+        if auth.bearer:
+            if not (auth.bearer.token or "").strip():
+                raise ValueError("Bearer auth requires token")
+        if auth.oauth:
+            cfg = auth.oauth.oauth_config
+            if not cfg or not (cfg.token_url or "").strip():
+                raise ValueError("OAuth requires token_url")
+        if auth.api_key:
+            if not (auth.api_key.api_key or "").strip():
+                raise ValueError("API key auth requires api_key")
+            if not (auth.api_key.api_key_header_name or "").strip():
+                raise ValueError("API key auth requires api_key_header_name")
 
 
 # Level-2 unions: within each type, discriminate by flavour.

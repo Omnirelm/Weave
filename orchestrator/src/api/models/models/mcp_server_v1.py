@@ -19,6 +19,7 @@ import json
 
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictFloat, StrictInt, StrictStr, field_validator
 from typing import Any, ClassVar, Dict, List, Optional, Union
+from .log_source_auth_mechanism_v1 import LogSourceAuthMechanismV1
 from typing import Optional, Set
 from typing_extensions import Self
 from pydantic_core import to_jsonable_python
@@ -38,7 +39,8 @@ class McpServerV1(BaseModel):
     timeout: Optional[Union[StrictFloat, StrictInt]] = None
     sse_read_timeout: Optional[Union[StrictFloat, StrictInt]] = None
     cache_tools_list: Optional[StrictBool] = False
-    __properties: ClassVar[List[str]] = ["type", "flavour", "transport", "url", "command", "args", "env", "headers", "timeout", "sse_read_timeout", "cache_tools_list"]
+    auth_mechanism: Optional[LogSourceAuthMechanismV1] = None
+    __properties: ClassVar[List[str]] = ["type", "flavour", "transport", "url", "command", "args", "env", "headers", "timeout", "sse_read_timeout", "cache_tools_list", "auth_mechanism"]
 
     @field_validator('type')
     def type_validate_enum(cls, value):
@@ -93,6 +95,9 @@ class McpServerV1(BaseModel):
             exclude=excluded_fields,
             exclude_none=True,
         )
+        # override the default output from pydantic by calling `to_dict()` of auth_mechanism
+        if self.auth_mechanism:
+            _dict['auth_mechanism'] = self.auth_mechanism.to_dict()
         return _dict
 
     @classmethod
@@ -115,7 +120,8 @@ class McpServerV1(BaseModel):
             "headers": obj.get("headers"),
             "timeout": obj.get("timeout"),
             "sse_read_timeout": obj.get("sse_read_timeout"),
-            "cache_tools_list": obj.get("cache_tools_list") if obj.get("cache_tools_list") is not None else False
+            "cache_tools_list": obj.get("cache_tools_list") if obj.get("cache_tools_list") is not None else False,
+            "auth_mechanism": LogSourceAuthMechanismV1.from_dict(obj["auth_mechanism"]) if obj.get("auth_mechanism") is not None else None
         })
         return _obj
 

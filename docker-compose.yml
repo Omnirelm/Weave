@@ -14,24 +14,6 @@
 #   OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://jaeger:4317
 
 services:
-  postgres:
-    image: postgres:16-alpine
-    environment:
-      POSTGRES_USER: orchestrator
-      POSTGRES_PASSWORD: orchestrator
-      POSTGRES_DB: orchestrator
-    ports:
-      - "5432:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-      - ./orchestrator/schema/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U orchestrator -d orchestrator"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-      start_period: 10s
-    restart: unless-stopped
 
   orchestrator:
     build:
@@ -54,7 +36,7 @@ services:
       # Mount config and agent templates as read-only so changes take effect without a rebuild.
       # Remove the volumes block if you prefer fully baked images.
       - ./orchestrator/config.yaml:/app/config.yaml:ro
-      - ./orchestrator/agents:/app/agents:ro
+      - ./orchestrator/skills:/app/skills:ro
     restart: unless-stopped
     healthcheck:
       test:
@@ -66,6 +48,29 @@ services:
       timeout: 10s
       start_period: 30s
       retries: 3
+
+  # ---------------------------------------------------------------------------
+  # PostgreSQL — storage backend for orchestrator
+  # ---------------------------------------------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: orchestrator
+      POSTGRES_PASSWORD: orchestrator
+      POSTGRES_DB: orchestrator
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test:
+        - "CMD-SHELL"
+        - "pg_isready -U orchestrator"
+      interval: 10s
+      timeout: 5s
+      start_period: 10s
+      retries: 5
 
   # ---------------------------------------------------------------------------
   # Jaeger — all-in-one trace collector + UI (profile: observability)

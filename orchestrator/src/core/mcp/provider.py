@@ -62,7 +62,9 @@ class McpProvider:
                 continue
 
             matched_flavours.add(row.flavour)
-            toolsets.append(_server_builder.build_toolset(config))
+            # Use async build to resolve OAuth tokens before building toolset
+            toolset = await _server_builder.build_toolset_async(config)
+            toolsets.append(toolset)
 
         missing = flavour_set - matched_flavours
         for flavour in missing:
@@ -91,6 +93,10 @@ class McpProvider:
             payload["type"] = transport
             payload["name"] = flavour
             payload["enabled"] = True
+            # Pass through auth_mechanism if present
+            auth_mechanism = payload.get("auth_mechanism")
+            if auth_mechanism:
+                payload["auth_mechanism"] = auth_mechanism
             return McpServerConfig.model_validate(payload)
         except Exception:
             logger.exception(

@@ -933,13 +933,20 @@ components:
         cache_tools_list:
           type: boolean
           default: false
+        auth_mechanism:
+          $ref: '#/components/schemas/LogSourceAuthMechanismV1'
       example:
         type: MCP
         flavour: GITHUB
         transport: streamable_http
-        url: "https://api.githubcopilot.com/mcp/"
-        headers:
-          Authorization: "Bearer ghp_xxxx"
+        url: "https://example.com/mcp"
+        auth_mechanism:
+          oauth:
+            oauth_config:
+              client_id: "your-client-id"
+              client_secret: "your-client-secret"
+              token_url: "https://oauthserverurl/oauth2/token"
+              scope: "api://mcp/.default"
         timeout: 15
         cache_tools_list: true
 
