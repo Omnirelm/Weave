@@ -33,7 +33,7 @@ class TaskRun(Base, TimestampMixin):
     objective: Mapped[str] = mapped_column(Text, nullable=False)
     agent_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     workflow_id: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
-    request_input: Mapped[str | None] = mapped_column(JSONB, nullable=True)
+    request_context: Mapped[str | None] = mapped_column(JSONB, nullable=True)
     output: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     reasoning: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -44,6 +44,7 @@ class TaskRun(Base, TimestampMixin):
         doc="v1 JSON: {schemaVersion:1, events:[plan|step,...]} or null",
     )
     cost: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    session_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     finished_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 

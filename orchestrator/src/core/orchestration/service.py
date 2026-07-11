@@ -8,7 +8,7 @@ import uuid
 from src.api.models.schemas import RunTaskResponse
 from src.api.translators.tasks import (
     RunTaskRequestDomain,
-    agent_input_payload,
+    agent_context_payload,
     build_run_task_response,
     invocation_cost_to_dto,
     serialize_task_output,
@@ -28,12 +28,13 @@ async def _execute_single_agent(
     runner: AgentRunner,
 ) -> tuple[RunTaskResponse, TaskRunState]:
     state = TaskRunState(agent_id=domain_body.agent_id)
-    payload = agent_input_payload(domain_body)
+    payload = agent_context_payload(domain_body)
 
     result = await runner.run_agent(
         domain_body.agent_id,
         payload,
         domain_body.tenant_id,
+        task_id=task_id,
     )
 
     if result.cost is not None:
@@ -82,7 +83,7 @@ async def _execute_workflow(
     workflow_runner: WorkflowRunner,
 ) -> tuple[RunTaskResponse, TaskRunState]:
     state = TaskRunState(workflow_id=domain_body.workflow_id)
-    payload = agent_input_payload(domain_body)
+    payload = agent_context_payload(domain_body)
 
     logger.info(
         "task.workflow.start task_id=%s tenant=%s workflow_id=%s",

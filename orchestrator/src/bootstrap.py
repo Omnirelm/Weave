@@ -153,3 +153,25 @@ async def wire_application(app: FastAPI) -> None:
     app.state.workflow_runner = workflow_runner
     app.state.agent_runner = AgentRunner(storage, agent_builder)
     app.state.storage = storage
+
+
+async def teardown_application(app: FastAPI) -> None:
+    """Gracefully shutdown all background tasks and database pools."""
+    import asyncio
+
+    if hasattr(app.state, "session_purge_task"):
+        app.state.session_purge_task.cancel()
+        try:
+            await app.state.session_purge_task
+        except asyncio.CancelledError:
+            pass
+
+    if hasattr(app.state, "storage"):
+        await app.state.storage.db.dispose()
+
+    from src.core.adk.session import get_session_service
+
+    session_service = get_session_service()
+    if hasattr(session_service, "close"):
+        await session_service.close()
+

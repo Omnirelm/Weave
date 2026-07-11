@@ -12,18 +12,19 @@ from src.api.middleware.auth_quota import (
 )
 
 from src.api.router import api_router
-from src.bootstrap import wire_application
+from src.bootstrap import teardown_application, wire_application
 from src.config.settings import get_config
+from src.core.adk.purge import start_session_purge_loop
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     await wire_application(app)
+    await start_session_purge_loop(app)
     try:
         yield
     finally:
-        if hasattr(app.state, "storage"):
-            await app.state.storage.db.dispose()
+        await teardown_application(app)
 
 
 def create_app() -> FastAPI:

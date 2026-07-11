@@ -2,15 +2,19 @@
 
 from __future__ import annotations
 
+from functools import lru_cache
 from typing import Any
 
 from google.adk.agents import BaseAgent
+from google.adk.events.event import Event
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
+from google.adk.sessions.base_session_service import BaseSessionService
+from google.adk.sessions.database_session_service import DatabaseSessionService
 from google.adk.sessions.session import Session
 from google.genai import types
 
-from google.adk.events.event import Event
+from src.config.settings import get_config
 
 APP_NAME = "weave"
 TASK_USER_ID = "system"
@@ -44,12 +48,24 @@ def calculate_tokens_by_author(events: list[Event]) -> dict[str, int]:
     return tokens_by_author
 
 
+@lru_cache(maxsize=1)
+def get_session_service() -> BaseSessionService:
+    config = get_config()
+    if config.session.service_type == "postgres":
+        return DatabaseSessionService(
+            config.database.url,
+            pool_size=config.database.pool_size,
+            max_overflow=config.database.max_overflow,
+        )
+    return InMemorySessionService()
+
+
 def build_runner(agent: BaseAgent) -> Runner:
-    """Create a Runner with an in-memory session service."""
+    """Create a Runner with the process-wide session service."""
     return Runner(
         agent=agent,
         app_name=APP_NAME,
-        session_service=InMemorySessionService(),
+        session_service=get_session_service(),
     )
 
 
@@ -57,12 +73,14 @@ async def create_task_session(
     runner: Runner,
     *,
     state: dict[str, Any] | None = None,
+    session_id: str | None = None,
 ) -> Session:
-    """Create a session, optionally with initial state (ADK-native)."""
+    """Create a session, optionally with initial state and specific session ID."""
     return await runner.session_service.create_session(
         app_name=runner.app_name,
         user_id=TASK_USER_ID,
         state=state,
+        session_id=session_id,
     )
 
 

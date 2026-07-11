@@ -40,7 +40,7 @@ def test_build_llm_agent_uses_agent_instructions() -> None:
     assert llm_agent.output_schema is None
     assert llm_agent.output_key == "agent_ppl_generation_out"
     assert llm_agent.static_instruction == "Generate a query."
-    assert llm_agent.instruction == "Run objective: {objective?}"
+    assert llm_agent.instruction == "Run objective: {objective?}  Context: {context?}"
     assert llm_agent.generate_content_config is None
 
 
