@@ -77,7 +77,7 @@ class AuthConfig(BaseModel):
 class SessionConfig(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
-    service_type: str = "in_memory"  # default to in_memory so unit tests run cleanly
+    service_type: str = "in_memory"  # default to in_memory so unit tests run cleanly 
     lifespan_hours: int = 24
     purge_interval_seconds: int = 3600
 
