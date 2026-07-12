@@ -757,7 +757,7 @@ components:
         agent_id:
           type: string
           description: Tenant agent to run for this task (single-agent shortcut).
-        input:
+        context:
           type: string
           nullable: true
           description: Free-form natural language / markdown context for the task.
@@ -765,7 +765,7 @@ components:
         objective: Investigate checkout errors after deployment
         slug: default
         workflow_id: ppl_log_analysis
-        input: |
+        context: |
           Service checkout-api, window last 1h. Sample errors:
 
           ```json

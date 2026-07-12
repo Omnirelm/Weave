@@ -61,3 +61,9 @@ auth:
     - path_pattern: "^/tenants/[^/]+/workflows$"
       methods: [POST]
       operation: workflow_max
+
+# Session storage configurations
+session:
+  service_type: postgres
+  lifespan_hours: 24
+  purge_interval_seconds: 3600

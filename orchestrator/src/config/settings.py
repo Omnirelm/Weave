@@ -74,6 +74,14 @@ class AuthConfig(BaseModel):
     quota_routes: list[QuotaRouteRule] = Field(default_factory=list)
 
 
+class SessionConfig(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    service_type: str = "in_memory"  # default to in_memory so unit tests run cleanly 
+    lifespan_hours: int = 24
+    purge_interval_seconds: int = 3600
+
+
 class OrchestratorConfig(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
@@ -87,6 +95,7 @@ class OrchestratorConfig(BaseModel):
     cors: CorsConfig = Field(default_factory=CorsConfig)
     database: DatabaseConfig = Field(default_factory=DatabaseConfig)
     auth: AuthConfig = Field(default_factory=AuthConfig)
+    session: SessionConfig = Field(default_factory=SessionConfig)
 
 
 def _project_root() -> Path:
@@ -139,6 +148,7 @@ def load_config(path: str | Path | None = None) -> OrchestratorConfig:
         "cors": dynasettings.get("cors", {}),
         "database": dynasettings.get("database", {}),
         "auth": dynasettings.get("auth", {}),
+        "session": dynasettings.get("session", {}),
     }
     config = OrchestratorConfig.model_validate(payload)
     _apply_runtime_env(config)

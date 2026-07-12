@@ -238,7 +238,7 @@ class TaskRunResponse(BaseModel):
     objective: str
     agent_id: str | None = None
     workflow_id: str | None = None
-    request_input: Any = None
+    request_context: Any = None
     output: dict[str, Any] | None = None
     summary: str | None = None
     reasoning: str | None = None

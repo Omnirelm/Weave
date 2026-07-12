@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import uuid
 from typing import Any
 
 from google.adk.agents import LlmAgent
@@ -23,13 +24,16 @@ def _initial_session_state(
     *,
     input_payload: dict[str, Any],
 ) -> dict[str, str]:
-    """Keys referenced by agent instruction templates ({user_input}, {objective})."""
+    """Keys referenced by agent instruction templates ({context}, {objective})."""
     objective = input_payload.get("objective")
+    context = input_payload.get("context")
     if not isinstance(objective, str):
         objective = ""
+    if not isinstance(context, str):
+        context = ""
     return {
         "objective": objective,
-        "user_input": json.dumps(input_payload),
+        "context": context,
     }
 
 
@@ -49,6 +53,7 @@ class AgentRunner:
         agent_id: str,
         input_payload: dict[str, Any],
         tenant_id: str,
+        task_id: uuid.UUID | None = None,
     ) -> AgentResult:
         row = await self._storage.tenant_agents.get_for_tenant(tenant_id, agent_id)
         if row is None:
@@ -60,15 +65,16 @@ class AgentRunner:
             return AgentResult(success=False, error=f"Invalid agent definition: {exc}")
 
         try:
-            with set_weave_context(tenant_id=tenant_id):
+            with set_weave_context(tenant_id=tenant_id, task_id=str(task_id) if task_id else None):
                 llm_agent = await self._resolve_and_build_llm_agent(agent, tenant_id)
                 runner = build_runner(llm_agent)
                 session = await create_task_session(
                     runner,
                     state=_initial_session_state(input_payload=input_payload),
+                    session_id=str(task_id) if task_id else None,
                 )
                 text, tokens = await run_runner_turn(
-                    runner, session, json.dumps(input_payload)
+                    runner, session, "start execution"
                 )
                 key = llm_agent.output_key or f"agent_{agent.id}_out"
                 raw = session.state.get(key) if key in session.state else text

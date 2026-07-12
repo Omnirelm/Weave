@@ -93,7 +93,7 @@ async def test_run_task_executes_workflow() -> None:
         objective="investigate errors",
         slug="default",
         workflow_id="ppl_log_analysis",
-        input="Labels: checkout, env prod",
+        context="Labels: checkout, env prod",
     )
 
     response = await tasks.run_task(body.slug, body, req)

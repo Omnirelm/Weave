@@ -3,6 +3,8 @@ from __future__ import annotations
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
+from typing import Any
+
 import pytest
 from fastapi import HTTPException
 from pydantic import ValidationError
@@ -36,6 +38,8 @@ class _DummyRunner:
         agent_id: str,
         input_payload: dict,
         tenant_id: str,
+        task_id: Any = None,
+        **kwargs: Any,
     ) -> AgentResult:
         self.calls.append((agent_id, input_payload, tenant_id))
         return self._agent_result
@@ -82,14 +86,14 @@ async def test_run_task_executes_agent() -> None:
         objective="do thing",
         slug="default",
         agent_id="log_analysis",
-        input="Logs from checkout:\n```json\n{\"service\":\"checkout\"}\n```",
+        context="Logs from checkout:\n```json\n{\"service\":\"checkout\"}\n```",
     )
 
     response = await tasks.run_task(body.slug, body, req)
 
     assert len(runner.calls) == 1
     assert runner.calls[0][0] == "log_analysis"
-    assert runner.calls[0][1]["input"] == body.input
+    assert runner.calls[0][1]["context"] == body.context
     assert runner.calls[0][1]["objective"] == "do thing"
     assert "task" not in runner.calls[0][1]
     assert response.success is True
@@ -99,7 +103,7 @@ async def test_run_task_executes_agent() -> None:
     persisted = req.app.state.storage.task_runs.create.await_args.args[0]
     assert persisted["id"] == response.task_id
     assert persisted["agent_id"] == "log_analysis"
-    assert persisted["request_input"] == body.input
+    assert persisted["request_context"] == body.context
     assert persisted["success"] is True
 
 
@@ -121,14 +125,14 @@ async def test_run_task_rejects_both_agent_and_workflow() -> None:
 
 
 @pytest.mark.asyncio
-async def test_run_task_accepts_string_input_without_validation() -> None:
+async def test_run_task_accepts_string_context_without_validation() -> None:
     runner = _DummyRunner(AgentResult(success=True, output={}))
     req = _request_with_runner(runner)
     body = RunTaskRequest(
         objective="do thing",
         slug="default",
         agent_id="log_analysis",
-        input="free-form context",
+        context="free-form context",
     )
     response = await tasks.run_task(body.slug, body, req)
     assert response.success is True
@@ -164,7 +168,7 @@ async def test_list_runs_returns_runs() -> None:
         objective="obj1",
         agent_id="agent1",
         workflow_id=None,
-        request_input="input1",
+        request_context="input1",
         output={"out": "1"},
         summary=None,
         reasoning="reason1",
@@ -200,7 +204,7 @@ async def test_get_run_returns_run() -> None:
         objective="obj1",
         agent_id="agent1",
         workflow_id=None,
-        request_input="input1",
+        request_context="input1",
         output={"out": "1"},
         summary=None,
         reasoning="reason1",

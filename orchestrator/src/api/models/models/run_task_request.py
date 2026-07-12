@@ -31,8 +31,8 @@ class RunTaskRequest(BaseModel):
     slug: StrictStr = Field(description="Tenant slug that owns the agent or workflow.")
     workflow_id: Optional[StrictStr] = Field(default=None, description="Tenant workflow to execute for this task.")
     agent_id: Optional[StrictStr] = Field(default=None, description="Tenant agent to run for this task (single-agent shortcut).")
-    input: Optional[StrictStr] = Field(default=None, description="Free-form natural language / markdown context for the task.")
-    __properties: ClassVar[List[str]] = ["objective", "slug", "workflow_id", "agent_id", "input"]
+    context: Optional[StrictStr] = Field(default=None, description="Free-form natural language / markdown context for the task.")
+    __properties: ClassVar[List[str]] = ["objective", "slug", "workflow_id", "agent_id", "context"]
 
     model_config = ConfigDict(
         validate_by_name=True,
@@ -73,10 +73,10 @@ class RunTaskRequest(BaseModel):
             exclude=excluded_fields,
             exclude_none=True,
         )
-        # set to None if input (nullable) is None
+        # set to None if context (nullable) is None
         # and model_fields_set contains the field
-        if self.input is None and "input" in self.model_fields_set:
-            _dict['input'] = None
+        if self.context is None and "context" in self.model_fields_set:
+            _dict['context'] = None
 
         return _dict
 
@@ -94,7 +94,7 @@ class RunTaskRequest(BaseModel):
             "slug": obj.get("slug"),
             "workflow_id": obj.get("workflow_id"),
             "agent_id": obj.get("agent_id"),
-            "input": obj.get("input")
+            "context": obj.get("context")
         })
         return _obj
 

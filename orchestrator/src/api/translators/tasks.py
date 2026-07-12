@@ -14,7 +14,7 @@ class RunTaskRequestDomain:
     tenant_id: str
     agent_id: str = ""
     workflow_id: str = ""
-    input: str = ""
+    context: str = ""
 
 
 def _to_json_object(value: object) -> dict[str, object] | None:
@@ -37,17 +37,17 @@ def run_task_request_to_domain(request: RunTaskRequest) -> RunTaskRequestDomain:
         tenant_id=request.slug,
         agent_id=request.agent_id or "",
         workflow_id=request.workflow_id or "",
-        input=(request.input or "").strip(),
+        context=(request.context or "").strip(),
     )
 
 
-def agent_input_payload(domain: RunTaskRequestDomain) -> dict[str, Any]:
-    """Build execution payload from run objective and optional input context."""
+def agent_context_payload(domain: RunTaskRequestDomain) -> dict[str, Any]:
+    """Build execution payload from run objective and optional task context."""
     payload: dict[str, Any] = {
         "objective": domain.objective,
     }
-    if domain.input:
-        payload["input"] = domain.input
+    if domain.context:
+        payload["context"] = domain.context
     return payload
 
 

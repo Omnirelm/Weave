@@ -113,7 +113,6 @@ class WorkflowRunner:
         workflow_id: str,
         input_payload: dict[str, Any],
         tenant_id: str,
-        *,
         task_id: uuid.UUID | None = None,
     ) -> WorkflowResult:
         row = await self._storage.tenant_workflows.get_for_tenant(tenant_id, workflow_id)
@@ -173,7 +172,6 @@ class WorkflowRunner:
         compiled: WorkflowCompileResult,
         payload: dict[str, Any],
         tenant_id: str,
-        *,
         task_id: uuid.UUID | None = None,
     ) -> WorkflowResult:
         started_at = time.monotonic()
@@ -182,6 +180,7 @@ class WorkflowRunner:
         session = await create_task_session(
             runner,
             state=_workflow_session_state(payload),
+            session_id=str(task_id) if task_id else None,
         )
         message = json.dumps(payload)
         content = types.Content(role="user", parts=[types.Part.from_text(text=message)])

@@ -37,6 +37,7 @@ from src.integrations.logs.tools import (
 )
 from src.integrations.traces.tools import JaegerFetchTraceTool, TempoFetchTraceTool
 from src.storage import get_storage
+from src.core.adk.session import get_session_service
 
 logger = logging.getLogger(__name__)
 
@@ -153,3 +154,24 @@ async def wire_application(app: FastAPI) -> None:
     app.state.workflow_runner = workflow_runner
     app.state.agent_runner = AgentRunner(storage, agent_builder)
     app.state.storage = storage
+    app.state.session_service = get_session_service()
+
+
+async def teardown_application(app: FastAPI) -> None:
+    """Gracefully shutdown all background tasks and database pools."""
+    import asyncio
+
+    if hasattr(app.state, "session_purge_task"):
+        app.state.session_purge_task.cancel()
+        try:
+            await app.state.session_purge_task
+        except asyncio.CancelledError:
+            pass
+
+    if hasattr(app.state, "storage"):
+        await app.state.storage.db.dispose()
+
+    if hasattr(app.state, "session_service"):
+        if hasattr(app.state.session_service, "close"):
+            await app.state.session_service.close()
+

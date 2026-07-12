@@ -61,7 +61,7 @@ class AgentBuilder:
                 prior_output_keys=prior_output_keys or [],
             )
         else:
-            dynamic_instruction = "Run objective: {objective?}"
+            dynamic_instruction = "Run objective: {objective?}  Context: {context?}"
 
         kwargs: dict[str, Any] = {
             "name": f"agent_{agent.id}",

@@ -1,0 +1,49 @@
+{
+    "integrations": {
+        "opensearch": {
+            "type": "LOG_SOURCE",
+            "flavour": "OPENSEARCH",
+            "active": true,
+            "url": "http://localhost:9200",
+            "index_pattern": "otel-logs-*"
+        },
+        "github": {
+            "type": "MCP",
+            "flavour": "GITHUB",
+            "transport": "streamable_http",
+            "url": "https://api.githubcopilot.com/mcp/",
+            "headers": {
+                "Authorization": "Bearer <GITHUB_PAT>"
+            },
+            "cache_tools_list": true
+        },
+        "jaeger": {
+            "type": "TRACE_SOURCE",
+            "flavour": "JAEGER",
+            "url": "http://localhost:52749",
+            "basePath": "/jaeger/ui",
+            "active": true,
+            "id": "1c98c14b0190d3a300d2c5330c061e73"
+        }
+    },
+    "tasks": [
+        {
+            "objective": "Investigate payment application issues in the last 10 minutes and identify code causes",
+            "slug": "xcorp",
+            "workflow_id": "ppl_log_analysis",
+            "input": {
+                "repo": "open-telemetry/opentelemetry-demo",
+                "labels": [
+                    {
+                        "name": "namespace",
+                        "value": "opentelemetry-demo"
+                    },
+                    {
+                        "name": "service.name",
+                        "value": "payment"
+                    }
+                ]
+            }
+        }
+    ]
+}

@@ -136,7 +136,7 @@ CREATE TABLE IF NOT EXISTS task_runs (
     objective               TEXT          NOT NULL,
     agent_id                VARCHAR(255),
     workflow_id             VARCHAR(128),
-    request_input           JSONB,
+    request_context         JSONB,
     output                  JSONB,
     summary                 TEXT,
     reasoning               TEXT,
@@ -144,6 +144,7 @@ CREATE TABLE IF NOT EXISTS task_runs (
     -- step_execution_detail: v1 object {"schemaVersion":1,"events":[...]} or NULL (see README).
     step_execution_detail   JSONB,
     cost                    JSONB,
+    session_id              VARCHAR(255),
     started_at              TIMESTAMPTZ   NOT NULL,
     finished_at             TIMESTAMPTZ   NOT NULL,
     created_at              TIMESTAMPTZ   NOT NULL DEFAULT now(),
