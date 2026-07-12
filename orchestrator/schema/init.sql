@@ -154,5 +154,6 @@ CREATE TABLE IF NOT EXISTS task_runs (
 CREATE INDEX IF NOT EXISTS ix_task_runs_tenant_slug ON task_runs (tenant_slug);
 CREATE INDEX IF NOT EXISTS ix_task_runs_workflow_id ON task_runs (tenant_slug, workflow_id);
 CREATE INDEX IF NOT EXISTS ix_task_runs_tenant_finished ON task_runs (tenant_slug, finished_at DESC);
+CREATE INDEX IF NOT EXISTS ix_task_runs_session_id ON task_runs (session_id);
 
 COMMIT;
