@@ -42,8 +42,9 @@ async def start_session_purge_loop(app: FastAPI) -> None:
                 logger.debug("Running session purge query...")
 
                 async with db.session() as session:
-                    # Compute threshold in Python for portability (works on both Postgres & SQLite)
-                    threshold = datetime.now(timezone.utc) - timedelta(hours=lifespan_hours)
+                    threshold = (
+                        datetime.now(timezone.utc) - timedelta(hours=lifespan_hours)
+                    ).replace(tzinfo=None)
                     # The tables are created dynamically by ADK's DatabaseSessionService
                     stmt = text("DELETE FROM sessions WHERE update_time < :threshold")
                     result = await session.execute(stmt, {"threshold": threshold})

@@ -76,7 +76,7 @@ class AgentRunner:
                 text, tokens = await run_runner_turn(
                     runner, session, "start execution"
                 )
-                key = f"agent_{agent.id}_out"
+                key = llm_agent.output_key or f"agent_{agent.id}_out"
                 raw = session.state.get(key) if key in session.state else text
                 output = coerce_output(raw)
                 cost = InvocationCost(
