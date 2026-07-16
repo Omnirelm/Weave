@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import uuid
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, HTTPException, Request
+from typing import Any
+from fastapi import APIRouter, HTTPException, Request, BackgroundTasks, status
 
 from src.api.models.schemas import RunTaskRequest, RunTaskResponse, TaskRunResponse
 from src.api.translators.tasks import RunTaskRequestDomain, run_task_request_to_domain
@@ -204,4 +206,151 @@ async def get_run(slug: str, run_id: uuid.UUID, request: Request) -> TaskRunResp
             status_code=500,
             detail=f"Failed to get task run: {exc}",
         ) from exc
+
+
+def parse_grafana_payload(payload: dict[str, Any]) -> tuple[str, str]:
+    """Parse Grafana Alertmanager webhook payload and extract objective + context."""
+    objective = "Investigate and provide reasoning for Grafana alerts"
+    context = json.dumps(payload, indent=2)
+    return objective, context
+
+
+async def _execute_trigger_async(
+    task_id: uuid.UUID,
+    domain_body: RunTaskRequestDomain,
+    runner: Any,
+    workflow_runner: Any,
+    storage: StorageGateway,
+) -> None:
+    started_at = datetime.now(timezone.utc)
+    try:
+        response, state = await execute_run_task(
+            task_id=task_id,
+            domain_body=domain_body,
+            runner=runner,
+            workflow_runner=workflow_runner,
+        )
+        await _persist_task_run_record(
+            storage,
+            task_id=task_id,
+            started_at=started_at,
+            domain_body=domain_body,
+            response=response,
+            state_step_detail=state.step_execution_detail,
+        )
+    except Exception as exc:
+        logger.exception("async webhook execution failed task_id=%s", task_id)
+        try:
+            from src.api.translators.tasks import build_run_task_response
+            response = build_run_task_response(
+                task_id=task_id,
+                success=False,
+                error=str(exc) or "Webhook background execution failed",
+                cost=None,
+            )
+            await _persist_task_run_record(
+                storage,
+                task_id=task_id,
+                started_at=started_at,
+                domain_body=domain_body,
+                response=response,
+            )
+        except Exception:
+            logger.exception("failed to persist failure task run record task_id=%s", task_id)
+
+
+async def _handle_grafana_trigger(
+    slug: str,
+    target_id: str,
+    target_type: str,
+    request: Request,
+    background_tasks: BackgroundTasks,
+) -> dict[str, str]:
+    storage: StorageGateway = request.app.state.storage
+    await _require_tenant(storage, slug)
+
+    if target_type == "workflow":
+        row = await storage.tenant_workflows.get_for_tenant(slug, target_id)
+        err_msg = f"Workflow not found: {target_id}"
+    else:
+        row = await storage.tenant_agents.get_for_tenant(slug, target_id)
+        err_msg = f"Agent not found: {target_id}"
+
+    if row is None:
+        raise HTTPException(
+            status_code=404,
+            detail=err_msg,
+        )
+
+    try:
+        payload = await request.json()
+    except Exception:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid JSON payload",
+        )
+
+    objective, context = parse_grafana_payload(payload)
+
+    domain_body = RunTaskRequestDomain(
+        objective=objective,
+        tenant_id=slug,
+        workflow_id=target_id if target_type == "workflow" else "",
+        agent_id=target_id if target_type == "agent" else "",
+        context=context,
+    )
+
+    task_id = uuid.uuid4()
+
+    runner = request.app.state.agent_runner
+    workflow_runner = request.app.state.workflow_runner
+
+    background_tasks.add_task(
+        _execute_trigger_async,
+        task_id=task_id,
+        domain_body=domain_body,
+        runner=runner,
+        workflow_runner=workflow_runner,
+        storage=storage,
+    )
+
+    return {"task_id": str(task_id), "status": "accepted"}
+
+
+@router.post(
+    "/tenants/{slug}/triggers/grafana/workflows/{workflow_id}",
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def trigger_grafana_workflow(
+    slug: str,
+    workflow_id: str,
+    request: Request,
+    background_tasks: BackgroundTasks,
+) -> dict[str, str]:
+    return await _handle_grafana_trigger(
+        slug=slug,
+        target_id=workflow_id,
+        target_type="workflow",
+        request=request,
+        background_tasks=background_tasks,
+    )
+
+
+@router.post(
+    "/tenants/{slug}/triggers/grafana/agents/{agent_id}",
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def trigger_grafana_agent(
+    slug: str,
+    agent_id: str,
+    request: Request,
+    background_tasks: BackgroundTasks,
+) -> dict[str, str]:
+    return await _handle_grafana_trigger(
+        slug=slug,
+        target_id=agent_id,
+        target_type="agent",
+        request=request,
+        background_tasks=background_tasks,
+    )
 

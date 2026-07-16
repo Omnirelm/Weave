@@ -55,6 +55,9 @@ auth:
     - path_pattern: "^/tenants/[^/]+/runs$"
       methods: [POST]
       operation: task_run
+    - path_pattern: "^/tenants/[^/]+/triggers/grafana/(workflows|agents)/[^/]+$"
+      methods: [POST]
+      operation: task_run
     - path_pattern: "^/tenants/[^/]+/agents$"
       methods: [POST]
       operation: agent_max

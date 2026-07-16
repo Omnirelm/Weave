@@ -16,6 +16,7 @@ tags:
   - name: agent
   - name: workflow
   - name: task
+  - name: trigger
   
 paths:
   /health:
@@ -405,6 +406,84 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "429":
           $ref: "#/components/responses/TooManyRequests"         
+
+  /tenants/{slug}/triggers/grafana/workflows/{workflow_id}:
+    post:
+      tags:
+        - trigger
+      summary: Trigger a workflow via Grafana alert webhook
+      operationId: triggerGrafanaWorkflow
+      parameters:
+        - $ref: "#/components/parameters/TenantId"
+        - $ref: "#/components/parameters/WorkflowId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "202":
+          description: Trigger request accepted and task run initiated
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [task_id, status]
+                properties:
+                  task_id:
+                    type: string
+                    format: uuid
+                  status:
+                    type: string
+                    example: accepted
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  /tenants/{slug}/triggers/grafana/agents/{agent_id}:
+    post:
+      tags:
+        - trigger
+      summary: Trigger an agent via Grafana alert webhook
+      operationId: triggerGrafanaAgent
+      parameters:
+        - $ref: "#/components/parameters/TenantId"
+        - $ref: "#/components/parameters/AgentId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "202":
+          description: Trigger request accepted and task run initiated
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [task_id, status]
+                properties:
+                  task_id:
+                    type: string
+                    format: uuid
+                  status:
+                    type: string
+                    example: accepted
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
 
 components:
   securitySchemes:
