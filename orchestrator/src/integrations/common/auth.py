@@ -52,6 +52,10 @@ def build_headers_and_oauth_from_auth_dict(
         oauth_cfg = oauth_block.get("oauthConfig") or oauth_block.get("oauth_config")
         if isinstance(oauth_cfg, dict):
             oauth_config = OAuthConfig.model_validate(oauth_cfg)
+            # Merge extra_headers into headers dict for requests to the log source
+            extra = oauth_cfg.get("extra_headers") or oauth_cfg.get("extraHeaders") or {}
+            if isinstance(extra, dict):
+                headers.update(extra)
             return AuthResult(
                 headers=headers,
                 oauth_config=oauth_config,

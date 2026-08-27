@@ -1118,12 +1118,19 @@ components:
           type: integer
           default: 60
           description: Seconds before expiry to refresh token
+        extra_headers:
+          type: object
+          additionalProperties:
+            type: string
+          description: Additional headers to include with every request (e.g. X-Org-Id, custom API keys).
       example:
         client_id: log-client
         client_secret: super-secret
         token_url: https://auth.example.com/oauth/token
         scope: logs.read
         token_expiry_buffer: 60
+        extra_headers:
+          X-Org-Id: org-123
     LogSourceAuthOAuthV1:
       type: object
       description: OAuth authentication wrapper for log sources.

@@ -32,7 +32,8 @@ class LogSourceOAuthConfigV1(BaseModel):
     token_url: Optional[StrictStr] = Field(default=None, description="OAuth token endpoint URL")
     scope: Optional[StrictStr] = Field(default=None, description="Optional OAuth scopes (comma-separated)")
     token_expiry_buffer: Optional[StrictInt] = Field(default=60, description="Seconds before expiry to refresh token")
-    __properties: ClassVar[List[str]] = ["client_id", "client_secret", "token_url", "scope", "token_expiry_buffer"]
+    extra_headers: Optional[Dict[str, StrictStr]] = Field(default=None, description="Additional headers to include with every request (e.g. X-Org-Id, custom API keys).")
+    __properties: ClassVar[List[str]] = ["client_id", "client_secret", "token_url", "scope", "token_expiry_buffer", "extra_headers"]
 
     model_config = ConfigDict(
         validate_by_name=True,
@@ -89,7 +90,8 @@ class LogSourceOAuthConfigV1(BaseModel):
             "client_secret": obj.get("client_secret"),
             "token_url": obj.get("token_url"),
             "scope": obj.get("scope"),
-            "token_expiry_buffer": obj.get("token_expiry_buffer") if obj.get("token_expiry_buffer") is not None else 60
+            "token_expiry_buffer": obj.get("token_expiry_buffer") if obj.get("token_expiry_buffer") is not None else 60,
+            "extra_headers": obj.get("extra_headers")
         })
         return _obj
 

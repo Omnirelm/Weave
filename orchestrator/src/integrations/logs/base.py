@@ -78,14 +78,16 @@ class OAuthConfig(BaseModel):
         token_url: OAuth token endpoint URL
         scope: Optional OAuth scopes (comma-separated string)
         token_expiry_buffer: Seconds before expiry to refresh token (default: 60)
+        extra_headers: Additional headers to include with every request
     """
     client_id: str = Field(None, alias="clientId", description="OAuth client identifier")
     client_secret: str = Field(None, alias="clientSecret", description="OAuth client secret")
     token_url: str = Field(None, alias="tokenUrl", description="OAuth token endpoint URL")
     scope: Optional[str] = Field(None, alias="scope", description="Optional OAuth scopes (comma-separated string)")
     token_expiry_buffer: int = Field(60, alias="tokenExpiryBuffer", description="Seconds before expiry to refresh token")
+    extra_headers: Optional[Dict[str, str]] = Field(None, alias="extraHeaders", description="Additional headers to include with every request")
     
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
 
 class OAuthTokenManager:
@@ -172,6 +174,10 @@ class OAuthTokenManager:
         headers = {
             'Content-Type': 'application/x-www-form-urlencoded',
         }
+        
+        # Merge extra_headers if provided
+        if self.config.extra_headers:
+            headers.update(self.config.extra_headers)
         
         try:
             response = requests.post(

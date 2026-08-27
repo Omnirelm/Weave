@@ -118,8 +118,14 @@ class OpenSearchExtractor(LogExtractor):
         # Create OAuth token manager
         token_manager = OAuthTokenManager(oauth_config)
         
+        # Merge oauth_config.extra_headers (e.g. Consumer-Key) so they always
+        # travel alongside the Bearer token added per-request by the token manager
+        merged_headers = dict(headers) if headers else {}
+        if oauth_config.extra_headers:
+            merged_headers.update(oauth_config.extra_headers)
+        
         # Use standard __init__ with OAuth token manager
-        return cls(base_url, index_pattern=index_pattern, headers=headers, oauth_token_manager=token_manager)
+        return cls(base_url, index_pattern=index_pattern, headers=merged_headers or None, oauth_token_manager=token_manager)
     
     @classmethod
     def from_oauth_params(cls, base_url: str, client_id: str, client_secret: str, token_url: str,

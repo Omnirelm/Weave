@@ -135,6 +135,7 @@ class McpAuthHandler:
         client_id = oauth_config.get("client_id", "")
         client_secret = oauth_config.get("client_secret", "")
         scope = oauth_config.get("scope", "")
+        extra_headers = oauth_config.get("extra_headers") or {}
 
         # Build token request
         data = {
@@ -147,11 +148,16 @@ class McpAuthHandler:
         if scope:
             data["scope"] = scope
 
+        # Build headers, merging extra_headers
+        headers = {"Content-Type": "application/x-www-form-urlencoded"}
+        if isinstance(extra_headers, dict):
+            headers.update(extra_headers)
+
         async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.post(
                 token_url,
                 data=data,
-                headers={"Content-Type": "application/x-www-form-urlencoded"},
+                headers=headers,
             )
             response.raise_for_status()
             return response.json()

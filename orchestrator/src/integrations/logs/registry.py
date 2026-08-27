@@ -123,9 +123,11 @@ def _factory_opensearch(spec: LogSourceSpec, default_loki_org_id: str) -> LogExt
 
 
 def _factory_loki(spec: LogSourceSpec, default_loki_org_id: str) -> LogExtractor:
+    _ = default_loki_org_id
     base_url = spec.url.rstrip("/")
     result = build_headers_and_oauth_from_auth_dict(spec.auth_mechanism)
-    effective_loki_org_id = (spec.loki_org_id or "").strip() or default_loki_org_id
+    # Only send X-Scope-OrgID when explicitly configured; no "default" fallback.
+    effective_loki_org_id = (spec.loki_org_id or "").strip() or None
     headers = _merge_spec_headers(spec, result.headers)
     return GrafanaLokiExtractor(
         base_url=base_url,
